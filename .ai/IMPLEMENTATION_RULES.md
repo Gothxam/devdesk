@@ -16,7 +16,13 @@
    Idea ➔ Discussion ➔ ADR ➔ Implementation ➔ Review ➔ Merge
    ```
 
-4. **AI Session Goldmine (`.ai/SESSION.md`)**:
+4. **Three Levels of Abstraction**:
+   - **📘 Level 1 — Vision** (*Rarely changes*): Why DevDesk exists, core philosophy. (`governance/`, `README.md`)
+   - **📙 Level 2 — Architecture** (*Changes occasionally*): Engines, APIs, contracts, module boundaries. (`docs/architecture/`, `docs/adr/`, `packages/plugin-sdk/`)
+   - **📗 Level 3 — Implementation** (*Changes frequently*): Source code, configs, tests, scripts. (`apps/`, `packages/`, `widgets/`, `plugins/`, `configs/`)
+   - **Rule**: Never mix these three levels. Implementation details must not pollute Level 1 or Level 2 documents.
+
+5. **AI Session Goldmine (`.ai/SESSION.md`)**:
    - Every AI agent interaction must append a record to `.ai/SESSION.md` containing:
      - Date
      - Agent Name & System
@@ -25,6 +31,6 @@
      - Decisions Made
      - Next Steps
 
-5. **Sandbox & Playground Isolation**:
+6. **Sandbox & Playground Isolation**:
    - Experimental prototypes live in `playground/`.
    - Never clutter production code with experimental spikes.
