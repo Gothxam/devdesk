@@ -24,13 +24,14 @@ fn adopting_a_transaction_reports_the_arrangement_and_how_recent_it_is() {
     let transaction = shared.publish(docked()).expect("a change");
 
     let mut manager = WindowManager::new();
-    let events = manager.observe(&transaction).expect("a newer transaction");
+    let outcome = manager.observe(&transaction).expect("a newer transaction");
+    let events = outcome.events();
 
     assert!(manager.has_observed());
     assert!(manager.has_displays());
     assert_eq!(manager.graph().monitors().len(), 2);
 
-    match &events[..] {
+    match events {
         [WindowEvent::TopologyAdopted {
             generation,
             fingerprint,

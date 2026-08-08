@@ -22,8 +22,9 @@ use devdesk_display::{
     DisplayGraph, MonitorDescriptor, MonitorId, Topology, TopologyGeneration, TopologyTransaction,
 };
 
-use super::event::{AssociationReason, WindowEvent};
+use super::event::{AssociationReason, WindowCommand, WindowEvent};
 use super::id::SurfaceId;
+use super::outcome::WindowOutcome;
 use super::reveal::{RevealError, RevealOutcome};
 use super::surface::{AssociationIntent, SurfaceError, SurfaceManager};
 
@@ -133,28 +134,30 @@ impl WindowManager {
     /// # Errors
     ///
     /// [`WindowError::Surface`] if the identity is already registered.
-    pub fn register_surface(
-        &mut self,
-        surface: SurfaceId,
-    ) -> Result<Vec<WindowEvent>, WindowError> {
+    pub fn register_surface(&mut self, surface: SurfaceId) -> Result<WindowOutcome, WindowError> {
         let window = self.surfaces.register(surface.clone())?.window();
 
         let monitor = self.default_monitor_id();
         self.surfaces
             .associate(&surface, monitor.clone(), AssociationIntent::Fallback)?;
 
-        Ok(vec![
-            WindowEvent::SurfaceRegistered {
-                surface: surface.clone(),
-                window,
-            },
-            WindowEvent::SurfaceAssociated {
-                surface,
-                from: None,
-                to: monitor,
-                reason: AssociationReason::Initial,
-            },
-        ])
+        let mut outcome = WindowOutcome::new();
+        outcome.push_event(WindowEvent::SurfaceRegistered {
+            surface: surface.clone(),
+            window,
+        });
+        outcome.push_event(WindowEvent::SurfaceAssociated {
+            surface: surface.clone(),
+            from: None,
+            to: monitor,
+            reason: AssociationReason::Initial,
+        });
+
+        // The only creation command there is, and it is hidden. A surface has no
+        // route to the screen except through the reveal sequence.
+        outcome.push_command(WindowCommand::CreateHidden { surface, window });
+
+        Ok(outcome)
     }
 
     /// Assigns a surface to a display, and records that it belongs there.
@@ -171,7 +174,7 @@ impl WindowManager {
         &mut self,
         surface: &SurfaceId,
         monitor: &MonitorId,
-    ) -> Result<Vec<WindowEvent>, WindowError> {
+    ) -> Result<WindowOutcome, WindowError> {
         if !self.is_attached(monitor) {
             return Err(WindowError::MonitorNotAttached {
                 monitor: monitor.clone(),
@@ -184,12 +187,17 @@ impl WindowManager {
             AssociationIntent::Deliberate,
         )?;
 
-        Ok(vec![WindowEvent::SurfaceAssociated {
+        let mut outcome = WindowOutcome::new();
+        outcome.push_event(WindowEvent::SurfaceAssociated {
             surface: surface.clone(),
             from,
             to: Some(monitor.clone()),
             reason: AssociationReason::Assigned,
-        }])
+        });
+
+        // No command. Which display a surface belongs to is association; moving
+        // a window there is placement, and placement is the layout actor's.
+        Ok(outcome)
     }
 
     /// The host reports that a surface's window now exists.
@@ -204,9 +212,12 @@ impl WindowManager {
     pub fn note_window_created(
         &mut self,
         surface: &SurfaceId,
-    ) -> Result<Vec<WindowEvent>, WindowError> {
-        let outcome = self.surfaces.reveal_mut(surface)?.attach()?;
-        Ok(reveal_events(surface, outcome))
+    ) -> Result<WindowOutcome, WindowError> {
+        let advanced = self.surfaces.reveal_mut(surface)?.attach()?;
+
+        let mut outcome = WindowOutcome::new();
+        outcome.extend_events(reveal_events(surface, advanced));
+        Ok(outcome)
     }
 
     /// The host reports that a surface has painted its first frame.
@@ -228,23 +239,33 @@ impl WindowManager {
     /// [`WindowError::Surface`] if the surface is unknown, and
     /// [`WindowError::Reveal`] if no window has been reported for it — a frame
     /// cannot be ready for a window nobody created.
-    pub fn note_first_frame(
-        &mut self,
-        surface: &SurfaceId,
-    ) -> Result<Vec<WindowEvent>, WindowError> {
+    pub fn note_first_frame(&mut self, surface: &SurfaceId) -> Result<WindowOutcome, WindowError> {
         let machine = self.surfaces.reveal_mut(surface)?;
 
         let painted = machine.first_frame()?;
-        let mut events = reveal_events(surface, painted);
+        let mut outcome = WindowOutcome::new();
+        outcome.extend_events(reveal_events(surface, painted));
 
         // Only from the transition. A surface that was already revealed does not
         // reveal again, and one that could not paint never reaches here.
         if painted.advanced().is_some() {
             let revealed = machine.reveal()?;
-            events.extend(reveal_events(surface, revealed));
+            outcome.extend_events(reveal_events(surface, revealed));
+
+            // The one place a show command is produced, and it is reachable only
+            // from the transition into `Revealed`, which is reachable only from
+            // `FirstFrameReady`. That chain is the no-flash guarantee.
+            if revealed.revealed_now() {
+                if let Some(record) = self.surfaces.get(surface) {
+                    outcome.push_command(WindowCommand::Show {
+                        surface: surface.clone(),
+                        window: record.window(),
+                    });
+                }
+            }
         }
 
-        Ok(events)
+        Ok(outcome)
     }
 
     /// Removes a surface and retires its window.
@@ -252,7 +273,7 @@ impl WindowManager {
     /// # Errors
     ///
     /// [`WindowError::Surface`] if the surface is not registered.
-    pub fn remove_surface(&mut self, surface: &SurfaceId) -> Result<Vec<WindowEvent>, WindowError> {
+    pub fn remove_surface(&mut self, surface: &SurfaceId) -> Result<WindowOutcome, WindowError> {
         let record = self
             .surfaces
             .remove(surface)
@@ -260,10 +281,17 @@ impl WindowManager {
                 surface: surface.clone(),
             })?;
 
-        Ok(vec![WindowEvent::SurfaceRemoved {
+        let mut outcome = WindowOutcome::new();
+        outcome.push_event(WindowEvent::SurfaceRemoved {
             surface: surface.clone(),
             window: record.window(),
-        }])
+        });
+        outcome.push_command(WindowCommand::Destroy {
+            surface: surface.clone(),
+            window: record.window(),
+        });
+
+        Ok(outcome)
     }
 
     /// Re-associates every surface against the current topology.
@@ -354,7 +382,7 @@ impl WindowManager {
     pub fn observe(
         &mut self,
         transaction: &TopologyTransaction,
-    ) -> Result<Vec<WindowEvent>, ObserveError> {
+    ) -> Result<WindowOutcome, ObserveError> {
         if transaction.generation() <= self.generation {
             return Err(ObserveError::Stale {
                 held: self.generation,
@@ -365,18 +393,24 @@ impl WindowManager {
         self.graph = Arc::clone(transaction.graph());
         self.generation = transaction.generation();
 
-        let mut events = vec![WindowEvent::TopologyAdopted {
+        let mut outcome = WindowOutcome::new();
+        outcome.push_event(WindowEvent::TopologyAdopted {
             generation: self.generation,
             fingerprint: self.graph.fingerprint().clone(),
             monitors: self.graph.monitors().len(),
-        }];
+        });
 
         // Association happens after the graph is swapped, so every decision it
         // makes is against the new desktop. Doing it before would associate
         // against a topology the manager has already been told is gone.
-        events.append(&mut self.reassociate_all());
+        //
+        // It produces no commands. A display change moves a surface's
+        // association; moving its window is placement, which this crate does not
+        // do — and a hidden surface stays hidden through a docking event, which
+        // is the correct behaviour rather than an omission.
+        outcome.extend_events(self.reassociate_all());
 
-        Ok(events)
+        Ok(outcome)
     }
 
     /// The current spatial index.

@@ -18,14 +18,18 @@
 //! > **A surface MUST NOT become visible before its first frame is ready.**
 
 pub mod event;
+pub mod host;
 pub mod id;
 pub mod manager;
+pub mod outcome;
 pub mod reveal;
 pub mod surface;
 
-pub use event::{AssociationReason, WindowEvent};
+pub use event::{AssociationReason, WindowCommand, WindowEvent};
+pub use host::{HostError, NullSink, SurfaceHost, WindowCommandSink};
 pub use id::{SurfaceId, WindowId, WindowIdAllocator};
 pub use manager::{ObserveError, WindowError, WindowManager};
+pub use outcome::WindowOutcome;
 pub use reveal::{RevealError, RevealOutcome, RevealState, RevealStateMachine, RevealStep};
 pub use surface::{AssociationIntent, SurfaceError, SurfaceManager, SurfaceRecord};
 

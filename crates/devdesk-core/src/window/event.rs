@@ -1,13 +1,21 @@
-//! What the window subsystem says about its own state.
+//! What the window subsystem says, and what it asks for.
 //!
-//! A [`WindowEvent`] is a **statement of fact**: it describes something that has
-//! already happened to the manager's state. Nobody has to act on one, and
-//! ignoring one cannot corrupt anything.
+//! Two vocabularies, deliberately separate:
 //!
-//! Requests to the host — create this window, show it — are a separate
-//! vocabulary arriving with hidden surface creation. Keeping the two apart is
-//! what keeps this crate free of Tauri: the manager decides *what should be
-//! true* and has no idea what a webview is.
+//! - A [`WindowEvent`] is a **statement of fact**. It describes something that
+//!   has already happened to the manager's state. Nobody has to act on one, and
+//!   ignoring one cannot corrupt anything.
+//! - A [`WindowCommand`] is a **request to the host**. It is the only way this
+//!   crate touches a real window, and every one is executed by `apps/desktop`
+//!   against Tauri.
+//!
+//! Keeping them apart is what keeps this crate free of Tauri. The manager
+//! decides *that* a window should be created hidden and *that* it should be
+//! shown once its first frame has arrived; it has no idea what a webview is.
+//!
+//! It is also what makes the reveal invariant checkable. A command list is a
+//! value, so "no show was ever emitted before the surface painted" is an
+//! assertion over data rather than an observation of a running window.
 
 use devdesk_display::{MonitorId, TopologyFingerprint, TopologyGeneration};
 
@@ -87,4 +95,67 @@ pub enum WindowEvent {
         surface: SurfaceId,
         window: WindowId,
     },
+}
+
+/// A request to the host to do something to a real window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WindowCommand {
+    /// Create the host window for a surface.
+    ///
+    /// There is **no `visible` field**, and that is the design. A surface window
+    /// is always created hidden (`AC-FRE-1.1`); offering the choice would make
+    /// the flash a mistake a caller could make rather than a state the system
+    /// cannot reach. Visibility is reachable only through [`WindowCommand::Show`].
+    CreateHidden {
+        surface: SurfaceId,
+        window: WindowId,
+    },
+
+    /// Make a window visible.
+    ///
+    /// Emitted only on the transition into
+    /// [`RevealState::Revealed`](super::reveal::RevealState::Revealed), which is
+    /// reachable only from `FirstFrameReady`. That chain is the no-flash
+    /// guarantee, and it holds by construction rather than by discipline.
+    Show {
+        surface: SurfaceId,
+        window: WindowId,
+    },
+
+    /// Destroy a window.
+    Destroy {
+        surface: SurfaceId,
+        window: WindowId,
+    },
+}
+
+impl WindowCommand {
+    /// The window this command addresses.
+    #[must_use]
+    pub const fn window(&self) -> WindowId {
+        match self {
+            Self::CreateHidden { window, .. }
+            | Self::Show { window, .. }
+            | Self::Destroy { window, .. } => *window,
+        }
+    }
+
+    /// The surface this command is on behalf of.
+    #[must_use]
+    pub const fn surface(&self) -> &SurfaceId {
+        match self {
+            Self::CreateHidden { surface, .. }
+            | Self::Show { surface, .. }
+            | Self::Destroy { surface, .. } => surface,
+        }
+    }
+
+    /// Whether executing this command puts something on screen.
+    ///
+    /// Exists so the no-flash property can be asserted over a command list
+    /// without matching on variants at every assertion site.
+    #[must_use]
+    pub const fn makes_visible(&self) -> bool {
+        matches!(self, Self::Show { .. })
+    }
 }

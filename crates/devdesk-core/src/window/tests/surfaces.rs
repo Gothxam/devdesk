@@ -1,6 +1,8 @@
 //! The surface registry and monitor association.
 
-use crate::window::{AssociationReason, SurfaceError, WindowError, WindowEvent, WindowManager};
+use crate::window::{
+    AssociationReason, SurfaceError, WindowCommand, WindowError, WindowEvent, WindowManager,
+};
 
 use super::fixtures::{dark, docked, external_only, published, surface, undocked};
 
@@ -27,12 +29,23 @@ fn monitor_named(manager: &WindowManager, serial: &str) -> devdesk_display::Moni
 fn registering_a_surface_allocates_a_window_and_a_display() {
     let (mut manager, _shared) = docked_manager();
 
-    let events = manager
+    let outcome = manager
         .register_surface(surface("devdesk.clock"))
         .expect("a fresh identity");
 
-    assert_eq!(events.len(), 2);
-    assert!(matches!(events[0], WindowEvent::SurfaceRegistered { .. }));
+    assert_eq!(outcome.events().len(), 2);
+    assert!(matches!(
+        outcome.events()[0],
+        WindowEvent::SurfaceRegistered { .. }
+    ));
+
+    // The only creation command there is, and it is hidden.
+    assert_eq!(outcome.commands().len(), 1);
+    assert!(matches!(
+        outcome.commands()[0],
+        WindowCommand::CreateHidden { .. }
+    ));
+    assert!(!outcome.makes_anything_visible());
 
     let record = manager
         .surfaces()
@@ -147,7 +160,8 @@ fn a_surface_falls_back_when_its_display_leaves() {
     let undock = shared
         .publish(undocked())
         .expect("the external display left");
-    let events = manager.observe(&undock).expect("adopted");
+    let outcome = manager.observe(&undock).expect("adopted");
+    let events = outcome.events();
 
     let record = manager
         .surfaces()
@@ -188,7 +202,8 @@ fn a_surface_goes_home_when_its_display_returns() {
     manager.observe(&undock).expect("adopted");
 
     let redock = shared.publish(docked()).expect("redocked");
-    let events = manager.observe(&redock).expect("adopted");
+    let outcome = manager.observe(&redock).expect("adopted");
+    let events = outcome.events();
 
     let record = manager
         .surfaces()
@@ -225,7 +240,8 @@ fn a_topology_change_that_does_not_affect_a_surface_emits_nothing_for_it() {
         super::fixtures::monitor(1, "SN-EXTERNAL", 1920, 3840, false),
     ]);
     let transaction = shared.publish(resized).expect("a change");
-    let events = manager.observe(&transaction).expect("adopted");
+    let outcome = manager.observe(&transaction).expect("adopted");
+    let events = outcome.events();
 
     assert_eq!(events.len(), 1, "only the topology event: {events:?}");
     assert!(matches!(events[0], WindowEvent::TopologyAdopted { .. }));
@@ -246,7 +262,8 @@ fn every_display_leaving_detaches_rather_than_destroys() {
         .expect("assigned");
 
     let blackout = shared.publish(dark()).expect("everything unplugged");
-    let events = manager.observe(&blackout).expect("adopted");
+    let outcome = manager.observe(&blackout).expect("adopted");
+    let events = outcome.events();
 
     assert_eq!(manager.surfaces().len(), 1, "the surface still exists");
     let record = manager

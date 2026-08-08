@@ -10,8 +10,12 @@
 
 pub mod error;
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use serde::Serialize;
 use specta::Type;
+
+use devdesk_core::window::{HostError, SurfaceError, SurfaceHost, SurfaceId, WindowError};
 
 pub use error::{IpcError, Platform, TraceId};
 
@@ -55,6 +59,66 @@ fn contract_describe() -> Result<ContractInfo, IpcError> {
     })
 }
 
+/// Reports that a surface has painted its first frame.
+///
+/// The shell calls this once, after its first paint. It is the entire input to
+/// the reveal sequence from outside the core: nothing else makes a surface
+/// visible, so `AC-FRE-1.1` reduces to "the shell tells the truth about when it
+/// painted", and being late costs a delay while being early is refused by the
+/// state machine.
+///
+/// The surface identity crosses as a string rather than a branded type. The core
+/// validates it (`SurfaceId::new`), and keeping `specta` out of `devdesk-core`
+/// is worth a stringly-typed argument at one boundary. Revisit when a second
+/// surface command exists.
+///
+/// # Errors
+///
+/// [`IpcError::InvalidArgument`] for an empty identity, [`IpcError::NotFound`]
+/// for an unknown surface, [`IpcError::PreconditionFailed`] when no window has
+/// been created for it yet, and [`IpcError::Internal`] when the windowing system
+/// refused — deliberately opaque across the trust boundary (ERR-1, SEC-15),
+/// because the underlying message can carry a filesystem path.
+#[tauri::command]
+#[specta::specta]
+fn surface_report_first_frame(
+    host: tauri::State<'_, SurfaceHost>,
+    surface_id: String,
+) -> Result<(), IpcError> {
+    let surface = SurfaceId::new(surface_id).ok_or_else(|| IpcError::InvalidArgument {
+        field: "surface_id".to_owned(),
+        expected: "a non-empty surface identity".to_owned(),
+    })?;
+
+    host.report_first_frame(&surface)
+        .map_err(|error| match error {
+            HostError::Window(WindowError::Surface(SurfaceError::Unknown { surface })) => {
+                IpcError::NotFound {
+                    kind: "surface".to_owned(),
+                    id: surface.to_string(),
+                }
+            }
+            HostError::Window(WindowError::Reveal(reveal)) => IpcError::PreconditionFailed {
+                reason: reveal.to_string(),
+            },
+            _ => IpcError::Internal {
+                trace_id: next_trace_id(),
+            },
+        })?;
+
+    Ok(())
+}
+
+/// A correlation id for a failure whose detail must not cross the boundary.
+///
+/// Process-local and monotonic. It correlates to a core-side log line once
+/// `devdesk-telemetry` carries one; until then it at least distinguishes two
+/// reports of "internal error" from one report seen twice.
+fn next_trace_id() -> TraceId {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    TraceId(format!("ipc-{}", NEXT.fetch_add(1, Ordering::Relaxed)))
+}
+
 /// Builds the command registry.
 ///
 /// Every command reachable from the shell is registered here. A command that is
@@ -62,6 +126,8 @@ fn contract_describe() -> Result<ContractInfo, IpcError> {
 /// user-reachable action to be expressible as one.
 #[must_use]
 pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
-    tauri_specta::Builder::<tauri::Wry>::new()
-        .commands(tauri_specta::collect_commands![contract_describe])
+    tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+        contract_describe,
+        surface_report_first_frame
+    ])
 }

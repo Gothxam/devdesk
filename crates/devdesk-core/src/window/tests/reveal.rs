@@ -1,8 +1,8 @@
 //! The reveal sequence, and the invariant it exists to hold.
 
 use crate::window::{
-    RevealError, RevealState, RevealStateMachine, RevealStep, WindowError, WindowEvent,
-    WindowManager,
+    RevealError, RevealState, RevealStateMachine, RevealStep, WindowCommand, WindowError,
+    WindowEvent, WindowManager,
 };
 
 use super::fixtures::{dark, docked, published, surface};
@@ -202,6 +202,7 @@ fn the_manager_reveals_on_the_first_frame_and_not_before() {
     let id = surface("devdesk.clock");
 
     let attached = manager.note_window_created(&id).expect("window exists");
+    let attached = attached.events();
     assert_eq!(attached.len(), 1);
     assert!(!manager
         .surfaces()
@@ -210,6 +211,7 @@ fn the_manager_reveals_on_the_first_frame_and_not_before() {
         .is_visible());
 
     let revealed = manager.note_first_frame(&id).expect("painted");
+    let revealed = revealed.events();
 
     // Two transitions, in order: the frame, then the reveal.
     assert_eq!(revealed.len(), 2);
@@ -258,12 +260,92 @@ fn a_reload_after_reveal_emits_nothing() {
     manager.note_first_frame(&id).expect("painted");
 
     let again = manager.note_first_frame(&id).expect("a reload");
+    let again = again.events();
     assert!(again.is_empty());
     assert!(manager
         .surfaces()
         .get(&id)
         .expect("registered")
         .is_visible());
+}
+
+#[test]
+fn a_show_command_is_produced_only_by_the_reveal_transition() {
+    // The no-flash property, stated over the command list: nothing that makes a
+    // window visible is emitted until the frame arrives, and the create that
+    // precedes it is hidden.
+    let shared = published(dark());
+    let transaction = shared.publish(docked()).expect("a change");
+    let mut manager = WindowManager::new();
+    manager.observe(&transaction).expect("adopted");
+
+    let id = surface("devdesk.clock");
+    let registered = manager.register_surface(id.clone()).expect("registered");
+    assert!(!registered.makes_anything_visible());
+    assert!(matches!(
+        registered.commands()[0],
+        WindowCommand::CreateHidden { .. }
+    ));
+
+    let attached = manager.note_window_created(&id).expect("window exists");
+    assert!(
+        attached.commands().is_empty(),
+        "a window existing is not a window being shown"
+    );
+
+    let revealed = manager.note_first_frame(&id).expect("painted");
+    assert_eq!(revealed.commands().len(), 1);
+    assert!(revealed.commands()[0].makes_visible());
+    assert_eq!(
+        revealed.commands()[0].window(),
+        registered.commands()[0].window(),
+        "the same window that was created hidden"
+    );
+
+    // And a reload asks for nothing.
+    let again = manager.note_first_frame(&id).expect("a reload");
+    assert!(again.commands().is_empty());
+}
+
+#[test]
+fn a_topology_change_never_shows_anything() {
+    // A hidden surface stays hidden through a docking event. Revealing on a
+    // display change would put an unpainted window on screen at the worst
+    // possible moment.
+    let shared = published(dark());
+    let first = shared.publish(docked()).expect("a change");
+    let mut manager = WindowManager::new();
+    manager.observe(&first).expect("adopted");
+    manager
+        .register_surface(surface("devdesk.clock"))
+        .expect("registered");
+
+    for topology in [dark(), docked(), dark()] {
+        if let Some(transaction) = shared.publish(topology) {
+            let outcome = manager.observe(&transaction).expect("adopted");
+            assert!(
+                outcome.commands().is_empty(),
+                "a display change asked the host to do something: {:?}",
+                outcome.commands()
+            );
+        }
+    }
+}
+
+#[test]
+fn removing_a_surface_asks_for_its_window_to_be_destroyed() {
+    let mut manager = manager_with_surface();
+    let id = surface("devdesk.clock");
+    let window = manager.surfaces().get(&id).expect("registered").window();
+
+    let removed = manager.remove_surface(&id).expect("removed");
+
+    assert_eq!(removed.commands().len(), 1);
+    assert!(matches!(
+        removed.commands()[0],
+        WindowCommand::Destroy { .. }
+    ));
+    assert_eq!(removed.commands()[0].window(), window);
 }
 
 #[test]
@@ -289,7 +371,8 @@ fn a_topology_change_does_not_disturb_reveal_state() {
     manager.note_first_frame(&id).expect("painted");
 
     let blackout = shared.publish(dark()).expect("everything unplugged");
-    let events = manager.observe(&blackout).expect("adopted");
+    let outcome = manager.observe(&blackout).expect("adopted");
+    let events = outcome.events();
 
     let record = manager.surfaces().get(&id).expect("still here");
     assert!(record.monitor().is_none(), "it has no display");
