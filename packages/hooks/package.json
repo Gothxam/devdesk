@@ -1,0 +1,17 @@
+{
+  "name": "@devdesk/hooks",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src"],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@devdesk/shared": "workspace:*",
+    "@devdesk/contracts": "workspace:*"
+  }
+}

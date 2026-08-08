@@ -1,0 +1,16 @@
+{
+  "name": "@devdesk/effects",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src"],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@devdesk/theme-engine": "workspace:*"
+  }
+}

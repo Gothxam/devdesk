@@ -6,4 +6,99 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  packages/animation:
+    dependencies:
+      '@devdesk/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/contracts:
+    dependencies:
+      '@devdesk/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/effects:
+    dependencies:
+      '@devdesk/theme-engine':
+        specifier: workspace:*
+        version: link:../theme-engine
+
+  packages/hooks:
+    dependencies:
+      '@devdesk/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@devdesk/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/plugin-sdk:
+    dependencies:
+      '@devdesk/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@devdesk/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/shared: {}
+
+  packages/storage:
+    dependencies:
+      '@devdesk/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@devdesk/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/theme-engine:
+    dependencies:
+      '@devdesk/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@devdesk/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/ui:
+    dependencies:
+      '@devdesk/animation':
+        specifier: workspace:*
+        version: link:../animation
+      '@devdesk/effects':
+        specifier: workspace:*
+        version: link:../effects
+      '@devdesk/theme-engine':
+        specifier: workspace:*
+        version: link:../theme-engine
+
+  packages/widget-engine:
+    dependencies:
+      '@devdesk/hooks':
+        specifier: workspace:*
+        version: link:../hooks
+      '@devdesk/storage':
+        specifier: workspace:*
+        version: link:../storage
+      '@devdesk/ui':
+        specifier: workspace:*
+        version: link:../ui
+
+packages:
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+snapshots:
+
+  typescript@5.9.3: {}

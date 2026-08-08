@@ -10,6 +10,10 @@
   "scripts": {
     "check:rust": "cargo clippy --all-targets --all-features -- -D warnings",
     "check:fmt:rust": "cargo fmt --all -- --check",
-    "check": "pnpm run check:fmt:rust && pnpm run check:rust"
+    "check:types": "pnpm -r --filter \"./packages/*\" run typecheck",
+    "check": "pnpm run check:fmt:rust && pnpm run check:rust && pnpm run check:types"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }
