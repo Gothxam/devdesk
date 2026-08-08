@@ -729,7 +729,9 @@ impl PhysicalPoint {
 
 ### 9.3 Topology Identity
 
-**WD-3.** Monitors **MUST** be identified by a stable fingerprint derived from EDID/display-ID data, not by OS enumeration index. Indices reorder across reboots and docking events, silently relocating every surface.
+**WD-3.** Monitors **MUST** be identified by display-reported identity, not by OS enumeration index. Indices reorder across reboots and docking events, silently relocating every surface.
+
+> **Amended by [`ADR-0004`](../adr/ADR-0004-display-topology-identity-and-transaction-model.md) §3.1.** No single reported signal — EDID serial, device path, connector, adapter, model — is both always present and always stable, so identity is a **set of signals plus a confidence**, never one string compared for equality. Two identities that both lack a signal have not agreed on it, and an ambiguous match resolves to nothing. ADR-0004 owns the confidence ladder, the resolution strategy, and the fingerprint inputs.
 **WD-4.** Layout is persisted **per topology fingerprint**. Docking, undocking, and returning to a known arrangement restore the arrangement the user configured for it.
 **WD-5.** An unknown topology **MUST** resolve deterministically: surfaces bind to the primary monitor with anchors preserved, and the user is offered a one-click restore. Losing user layout silently is prohibited.
 **WD-6.** Hotplug events **MUST** be debounced (default 250 ms) and treated as *hints* — the handler re-queries the OS for authoritative topology rather than trusting the event payload.
@@ -752,6 +754,16 @@ flowchart TB
 **WD-7.** Layer assignment is **declared in the plugin manifest** and **granted by the core**. A surface cannot promote its own layer at runtime.
 **WD-8.** Layers 0, 3, and 4 require platform-specific attachment (Win32 `WorkerW` reparenting; AppKit window levels and collection behaviour; `wlr-layer-shell` on supporting Wayland compositors). Each is a `PlatformBackend` method that **MUST** return `Unsupported` rather than degrade silently where unavailable (§19.3).
 **WD-9.** Layer 4 is **reserved to the core**. Plugins **MUST NOT** be granted it — it is where capability prompts render, and a plugin able to draw there could spoof them (§18.7).
+
+### 9.5 Topology Consistency
+
+> Added by [`ADR-0004`](../adr/ADR-0004-display-topology-identity-and-transaction-model.md), which owns the full rules. These three are the boundary obligations every consumer of the display subsystem depends on.
+
+**WD-10.** Topology changes **MUST** be published as a **transaction** carrying the generation, both arrangements, and the computed difference, applied atomically. A consumer **MUST NOT** be able to observe an intermediate state — a spatial index that disagrees with the arrangement it indexes, or a generation that does not match the displays beside it. Undocking emits a burst of platform events, and a consumer reading topology per event places surfaces against arrangements that existed for milliseconds.
+
+**WD-11.** The spatial index over an arrangement **MUST** be immutable, and every topology change **MUST** produce a new one. Spatial queries are asked in the middle of other work — a drag, a layout solve, a hit test — and an index that can change under a caller lets a sequence of queries answer against two different desktops.
+
+**WD-12.** Recency and arrangement identity are **separate values**. The fingerprint (WD-3) answers *which* arrangement this is and repeats when the user returns to a known desk, which is what makes it a layout key under WD-4. A monotonic **generation** answers *how recent* this is. A consumer holding stale work cannot detect it from a fingerprint alone.
 
 ---
 
@@ -1442,8 +1454,8 @@ sequenceDiagram
 pub trait PlatformBackend: Send + Sync + 'static {
     fn id(&self) -> Platform;
 
-    // Display
-    fn enumerate_monitors(&self) -> Result<Vec<MonitorDescriptor>, PlatformError>;
+    // Display — raw records, never display domain types (ADR-0004 TP-12)
+    fn enumerate_monitors(&self) -> Result<Vec<RawMonitorInfo>, PlatformError>;
     fn subscribe_display_changes(&self, sink: DisplayEventSink) -> Result<SubscriptionId, PlatformError>;
 
     // Window layering
@@ -1469,6 +1481,8 @@ pub enum Support {
 ```
 
 **XP-2.** Callers **MUST** consult `supports()` before offering a feature in the UI. Offering an action that cannot succeed on the current platform is a defect.
+
+> **`enumerate_monitors` returns raw records, amended by [`ADR-0004`](../adr/ADR-0004-display-topology-identity-and-transaction-model.md) `TP-12`.** `ADR-0003` §4.1 makes `devdesk-display` depend on `devdesk-platform`; returning a `MonitorDescriptor` here would invert that and put identity resolution, scale validation, and coordinate-space tagging inside the OS shim. This crate reports what the system said, with what it declined to say left **absent rather than defaulted** — a defaulted identity field is worse than a missing one, because the layer above cannot tell them apart and would assign a confidence the evidence does not support.
 **XP-3.** Unsupported operations **MUST** return `Unsupported` with a reason. Silent no-ops are prohibited — they produce bug reports that reproduce on one OS only and appear as "nothing happens."
 
 ### 19.2 Platform Divergence
@@ -1631,7 +1645,7 @@ Each decision below is a **seed for a formal ADR** under `docs/adr/`, as require
 **Decision.** All durable and shared state lives in the Rust core. The shell holds a projection synchronized by snapshot + delta (§8).
 **Alternatives.** (a) Rich frontend store with backend sync — rejected: two authorities produce a quadratic divergence surface. (b) Stateless frontend re-fetching on demand — rejected: violates B-5 and B-8 under interaction.
 **Consequences.** Every mutation is a command round trip; optimistic updates (§8.4) become necessary for direct manipulation. Accepted: bounded complexity in one place, versus unbounded divergence bugs everywhere.
-**Target ADR.** `ADR-0002-state-ownership.md`
+**Target ADR.** Owed — state ownership. Number allocated on decision (§27.3).
 
 ---
 
@@ -1641,7 +1655,7 @@ Each decision below is a **seed for a formal ADR** under `docs/adr/`, as require
 **Decision.** Introduce `crates/` as a peer of `packages/`, containing all reusable Rust libraries. `apps/desktop/src-tauri` holds only the binary crate.
 **Alternatives.** (a) Rust crates under `packages/` — rejected: two toolchains sharing a directory breaks tooling assumptions in both ecosystems and makes dependency lint rules ambiguous. (b) All Rust inside `src-tauri` — rejected: violates DR-7 and makes the core untestable without the Tauri harness.
 **Consequences.** `README.md` and `.ai/CONTEXT.md` structure blocks must be updated. This is a Level 1 document touching a Level 2 concern; it therefore requires explicit governance sign-off, not a silent edit.
-**Target ADR.** `ADR-0003-rust-crate-layout.md` *(blocks implementation of §6.2.1)*
+**Ratified by.** [`ADR-0003`](../adr/ADR-0003-repository-layout.md) — repository layout, workspace topology, and folder ownership.
 
 ---
 
@@ -1651,7 +1665,7 @@ Each decision below is a **seed for a formal ADR** under `docs/adr/`, as require
 **Decision.** `tauri-specta` + `specta` generate `packages/shared/src/generated/contract.ts` and `docs/api/contract.schema.json`. Both are committed and diff-gated (§7.4).
 **Alternatives.** (a) Hand-written types — rejected: drift is inevitable and undetectable. (b) OpenAPI/protobuf schema-first — rejected: adds a build stage and a second source of truth for marginal benefit at this boundary.
 **Consequences.** Rust command signatures become the definitional API. A codegen step joins the critical build path. AI-assisted workflows (C-5) gain a machine-readable contract, which is a direct benefit.
-**Target ADR.** `ADR-0004-ipc-contract-generation.md`
+**Target ADR.** Owed — IPC contract generation. Number allocated on decision (§27.3).
 
 ---
 
@@ -1661,7 +1675,7 @@ Each decision below is a **seed for a formal ADR** under `docs/adr/`, as require
 **Decision.** Plugin logic runs in a Web Worker with no DOM and no ambient IO. Rendering data crosses via structured messages to a first-party renderer (§11.3).
 **Alternatives.** (a) `<iframe>` sandbox — rejected: still a document realm, larger attack surface, higher per-surface cost against B-4. (b) WASM sandbox — deferred: stronger isolation but immature ergonomics for UI-adjacent plugin authoring; see §26.3. (c) Direct execution in the surface realm — rejected outright: no isolation whatsoever.
 **Consequences.** Plugins cannot manipulate DOM directly; they describe intent, the host renders. This is a real authoring constraint, accepted deliberately — it is also what makes theme-first work, because plugin output is themeable rather than pre-styled.
-**Target ADR.** `ADR-0005-plugin-sandbox.md`
+**Target ADR.** Owed — plugin sandbox model. Number allocated on decision (§27.3).
 
 ---
 
@@ -1671,7 +1685,7 @@ Each decision below is a **seed for a formal ADR** under `docs/adr/`, as require
 **Decision.** Theme artifacts contain only declarative tokens. No JS, no WASM, no template expression language with side effects (§10.1).
 **Alternatives.** (a) Themes with scripting hooks — rejected: converts every theme install into arbitrary code execution. (b) A restricted expression DSL — deferred: a sandboxed pure expression evaluator may be added later (§26.5), but only as an explicitly non-Turing-complete, side-effect-free evaluator.
 **Consequences.** Some dynamic theming requires a plugin. Accepted: the plugin path is capability-gated and visible to the user; the theme path is not.
-**Target ADR.** `ADR-0006-theme-data-model.md`
+**Target ADR.** Owed — theme data model. Number allocated on decision (§27.3).
 
 ---
 
@@ -1681,7 +1695,7 @@ Each decision below is a **seed for a formal ADR** under `docs/adr/`, as require
 **Decision.** One host process. Fault isolation for untrusted code is achieved in the sandbox; the core is protected by a no-panic-on-external-input rule (EM-2).
 **Alternatives.** Process-per-surface and process-per-plugin — both rejected against B-3/B-4 at typical configurations (12+ surfaces).
 **Consequences.** A core panic ends the session. Mitigated by EM-2, fuzzing (TS-8), crash recovery (§14.4), and Safe Mode (LC-9). Revisitable per §26.2.
-**Target ADR.** `ADR-0007-process-model.md`
+**Target ADR.** Owed — process model. Number allocated on decision (§27.3).
 
 ---
 
@@ -1691,7 +1705,7 @@ Each decision below is a **seed for a formal ADR** under `docs/adr/`, as require
 **Decision.** State is partitioned across single-owner actors reached by bounded message channels (§16).
 **Alternatives.** (a) Global mutex — rejected: serializes unrelated work and deadlocks on display-change paths. (b) Fine-grained per-field locks — rejected: lock-ordering complexity exceeds actor complexity, with worse failure modes.
 **Consequences.** All cross-subsystem interaction is asynchronous message passing. Slightly more ceremony per call; deadlocks become structurally difficult rather than merely rare.
-**Target ADR.** `ADR-0008-concurrency-model.md`
+**Target ADR.** Owed — concurrency model. Number allocated on decision (§27.3).
 
 ---
 
@@ -1701,17 +1715,17 @@ Each decision below is a **seed for a formal ADR** under `docs/adr/`, as require
 **Decision.** First-party surfaces use the identical plugin contract, with no bypass.
 **Alternatives.** Privileged first-party API — rejected: guarantees third-party second-class status and hides contract deficiencies until they are expensive to fix.
 **Consequences.** Early first-party development is slower, because gaps in the contract must be fixed rather than routed around. This is the intended cost.
-**Target ADR.** `ADR-0009-plugin-parity.md`
+**Target ADR.** Owed — plugin parity for first-party surfaces. Number allocated on decision (§27.3).
 
 ---
 
 ### DD-009 — Layout persisted per topology fingerprint
 
 **Context.** Docking, undocking, and monitor reordering silently destroy layouts in most desktop customization tools.
-**Decision.** Monitors are identified by a stable fingerprint; layout is stored per topology; unknown topologies resolve deterministically with a one-click restore (§9.3).
-**Alternatives.** (a) Index-based identity — rejected: reorders across reboots. (b) Single global layout — rejected: unusable on laptop + dock workflows, which are the common case.
-**Consequences.** Storage grows with distinct topologies (bounded, small). Fingerprint derivation is platform-specific and must be implemented per backend.
-**Target ADR.** `ADR-0010-topology-identity.md`
+**Decision.** Monitors are identified by display-reported identity carrying a confidence, not by index or by one string; layout is stored per topology fingerprint; unknown topologies resolve deterministically with a one-click restore (§9.3).
+**Alternatives.** (a) Index-based identity — rejected: reorders across reboots. (b) Single global layout — rejected: unusable on laptop + dock workflows, which are the common case. (c) Exact-string identity — rejected by ADR-0004 §6.2: no reported signal is both always present and always stable.
+**Consequences.** Storage grows with distinct topologies (bounded, small). Signal extraction is platform-specific and implemented per backend; the identity model above it is written once. A display with no conclusive signal degrades to a lower confidence and a user-visible restore rather than to a wrong answer.
+**Ratified by.** [`ADR-0004`](../adr/ADR-0004-display-topology-identity-and-transaction-model.md) — display topology identity and transaction model.
 
 ---
 
@@ -1721,7 +1735,7 @@ Each decision below is a **seed for a formal ADR** under `docs/adr/`, as require
 **Decision.** All glass goes through `@devdesk/effects`, which accounts GPU cost per surface and degrades in a defined order, observably (§10.3).
 **Alternatives.** (a) Unrestricted `backdrop-filter` — rejected: fails B-8 at realistic surface counts. (b) Fixed global quality setting — rejected: penalizes capable hardware and still fails on weak hardware under load.
 **Consequences.** Components and plugins cannot apply `backdrop-filter` directly. Visual output becomes hardware-dependent — made acceptable by making degradation explicit and measurable (TH-8).
-**Target ADR.** `ADR-0011-effect-budgeting.md`
+**Target ADR.** Owed — effect budgeting and degradation. Number allocated on decision (§27.3).
 
 ---
 
@@ -1731,7 +1745,7 @@ Each decision below is a **seed for a formal ADR** under `docs/adr/`, as require
 **Decision.** No background telemetry, no analytics, no crash upload. Plugin network access is per-origin, granted, and always visible (§18.9).
 **Alternatives.** Opt-out telemetry — rejected: incompatible with the trust posture a desktop customization platform requires.
 **Consequences.** Field diagnostics rely on user-initiated local reports (§20.3). Accepted; the observability design compensates deliberately.
-**Target ADR.** `ADR-0012-data-egress-policy.md`
+**Target ADR.** Owed — data egress policy. Number allocated on decision (§27.3).
 
 ---
 
@@ -2160,20 +2174,32 @@ Signed distribution with reviews and update channels.
 
 ### 27.3 ADRs Seeded by This Document
 
-| ADR | Title | Source | Blocking |
-| --- | --- | --- | --- |
-| `ADR-0001` | Adopt the DevDesk system architecture | This document | Yes — gates all Level 2 work |
-| `ADR-0002` | State ownership and the snapshot/delta protocol | DD-001 | Stage 3 |
-| `ADR-0003` | Rust crate layout and the `crates/` directory | DD-002 | **Stage 0** |
-| `ADR-0004` | Generated IPC contract | DD-003 | Stage 1 |
-| `ADR-0005` | Plugin sandbox model | DD-004 | Stage 7 |
-| `ADR-0006` | Theme data model | DD-005 | Stage 5 |
-| `ADR-0007` | Process model | DD-006 | Stage 0 |
-| `ADR-0008` | Concurrency model | DD-007 | Stage 3 |
-| `ADR-0009` | Plugin parity for first-party surfaces | DD-008 | Stage 7 |
-| `ADR-0010` | Topology identity and layout persistence | DD-009 | Stage 2 |
-| `ADR-0011` | Effect budgeting and degradation | DD-010 | Stage 5 |
-| `ADR-0012` | Data egress policy | DD-011 | Stage 0 |
+**This table is superseded as a register.** [`ADR-0001`](../adr/ADR-0001-system-architecture.md) §3.5 `D-10` is authoritative for what is owed and what it blocks; it is not restated here. Numbers are allocated in **decision order** ([`ADR-0004`](../adr/ADR-0004-display-topology-identity-and-transaction-model.md) `REG-1`), so a number pre-assigned to an unwritten ADR reserves nothing.
+
+What follows is retained only as the map from this document's design decisions to the ADRs that ratify them.
+
+**Decided.** These exist and are binding.
+
+| ADR | Title | Ratifies |
+| --- | --- | --- |
+| [`ADR-0001`](../adr/ADR-0001-system-architecture.md) | Adopt the DevDesk system architecture | This document |
+| [`ADR-0002`](../adr/ADR-0002-performance-budgets.md) | Performance budgets and measurement methodology | §3.3, §17.6 |
+| [`ADR-0003`](../adr/ADR-0003-repository-layout.md) | Repository layout, workspace topology, folder ownership | DD-002, Appendix A |
+| [`ADR-0004`](../adr/ADR-0004-display-topology-identity-and-transaction-model.md) | Display topology identity and transaction model | DD-009, §9.3, §9.5, §19.1 |
+
+**Seeded, number unassigned.** Each is owed by a design decision above; the number is allocated when the decision is taken.
+
+| Source | Subject | Blocking |
+| --- | --- | --- |
+| DD-001 | State ownership and the snapshot/delta protocol | Stage 3 |
+| DD-003 | Generated IPC contract | Stage 1 |
+| DD-004 | Plugin sandbox model | Stage 7 |
+| DD-005 | Theme data model | Stage 5 |
+| DD-006 | Process model | Stage 0 |
+| DD-007 | Concurrency model | Stage 3 |
+| DD-008 | Plugin parity for first-party surfaces | Stage 7 |
+| DD-010 | Effect budgeting and degradation | Stage 5 |
+| DD-011 | Data egress policy | Stage 0 |
 
 ### 27.4 Knowledge Base — Research Inputs
 
@@ -2217,7 +2243,10 @@ Findings that validate or challenge this architecture belong in `knowledge/`, ne
 | **Degradation tier** | Full / Reduced / Minimal — the declared quality levels the system may occupy (EM-4). |
 | **Delta** | An incremental state patch carrying `from` and `to` revisions (§8.2). |
 | **DIP** | Device-independent pixel; the logical coordinate unit (§9.2). |
-| **Fingerprint (topology)** | A stable identifier for a monitor arrangement, derived from display identity rather than enumeration order (WD-3). |
+| **Display graph** | The immutable spatial index over one arrangement: adjacency, containment, virtual bounds. Rebuilt, never mutated (WD-11). |
+| **Fingerprint (topology)** | A stable identifier for a monitor arrangement, derived from display identity rather than enumeration order (WD-3). Repeats when the user returns to a known desk, which is what makes it a layout key (WD-4). |
+| **Generation (topology)** | A monotonic counter of topology publications. Answers *how recent*, where a fingerprint answers *which* (WD-12). |
+| **Identity confidence** | How strongly two monitor identities are believed to describe the same physical display — `Exact`, `Strong`, `Probable`, `Weak`, `None`. Reattaching a saved layout without asking requires `Strong` or better (ADR-0004 `MI-2`, `MI-6`). |
 | **Grant** | A persisted, revocable user authorization of a capability to a specific plugin (PL-10). |
 | **Host API** | The capability-scoped, generated proxy through which a plugin reaches the platform (PL-3). |
 | **Isolation pattern** | Tauri's sandboxed interception frame between the webview and the IPC bridge (SEC-6). |
@@ -2234,6 +2263,7 @@ Findings that validate or challenge this architecture belong in `knowledge/`, ne
 | **Surface** | The unit of composition: a bounded, positioned, themed region backed by a plugin (§12). |
 | **Token (theme)** | A named declarative style value in the base → semantic → component graph (§10.2). |
 | **Topology** | The complete monitor arrangement: count, sizes, positions, scale factors (§9.3). |
+| **Topology transaction** | One atomic topology change, carrying the generation, both arrangements, and the computed difference. The only way a change becomes visible (WD-10). |
 | **Trust zone** | A boundary defining what may be assumed about code or data crossing it (§18.2). |
 | **Widget** | User-facing vocabulary for a surface. Internal code uses *surface* exclusively (§12). |
 

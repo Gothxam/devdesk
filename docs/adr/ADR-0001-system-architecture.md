@@ -18,7 +18,7 @@
 | **Governs** | `docs/architecture/SYSTEM_ARCHITECTURE.md` (`ARCH-0001`) and every document that refines it |
 | **Supersedes** | — |
 | **Superseded by** | — |
-| **Amended by** | [`ADR-0002`](./ADR-0002-performance-budgets.md) (§3.3), [`ADR-0003`](./ADR-0003-repository-layout.md) (Appendix A) |
+| **Amended by** | [`ADR-0002`](./ADR-0002-performance-budgets.md) (§3.3), [`ADR-0003`](./ADR-0003-repository-layout.md) (Appendix A), [`ADR-0004`](./ADR-0004-display-topology-identity-and-transaction-model.md) (§9.3, §9.5, §19.1, DD-009) |
 | **Wave** | 0 — Foundation |
 | **Reversal Cost** | **Very high.** Every Level 2 and Level 3 artifact is written against this baseline. Reversal after Stage 1 (per `SYSTEM_ARCHITECTURE.md` §25.1) invalidates the generated IPC contract and every subsystem specification. |
 
@@ -172,23 +172,29 @@ The problem is **not** whether the architecture is correct — that question is 
 
 ### 3.5 The ADR Register
 
-**D-10.** The register below is **authoritative** and supersedes `SYSTEM_ARCHITECTURE.md` §27.3, which assigned `ADR-0002` to state ownership and `ADR-0003` to Rust crate layout. Wave 0 assigns `ADR-0002` to performance budgets and `ADR-0003` to repository layout; the §27.3 seeds renumber accordingly. Numbers are ordered by the implementation stage each ADR blocks, so the register reads as a build sequence.
+**D-10.** The register below is **authoritative** and supersedes `SYSTEM_ARCHITECTURE.md` §27.3, which assigned `ADR-0002` to state ownership and `ADR-0003` to Rust crate layout. Wave 0 assigns `ADR-0002` to performance budgets and `ADR-0003` to repository layout.
+
+> **Amended by [`ADR-0004`](./ADR-0004-display-topology-identity-and-transaction-model.md) §3.6.** This rule originally allocated numbers **by the stage each ADR blocks**, so that the register read as a build sequence. That scheme requires ADRs to be *written* in stage order, and they are not: Sprint 1 Day 3 produced a Stage 2 decision — display topology identity — while the Stage 0 process-model and data-egress decisions remain unwritten. Under stage ordering the next ADR to be decided must claim a number in the middle of the register, which `D-11` then freezes, permanently misordering it.
+>
+> **Numbers are therefore allocated in decision order.** The register still records what each ADR blocks; it no longer promises that the numbers ascend with the stages. Pre-assigned numbers for undecided ADRs are **provisional and non-binding** — an undecided row's number is a placeholder, not a reservation.
 
 | ADR | Title | Source | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | `ADR-0001` | Adopt the DevDesk system architecture | `SYSTEM_ARCHITECTURE.md` | All Level 2 work | **ACCEPTED** |
 | `ADR-0002` | Performance budgets and measurement methodology | §3.3, X-1, X-2, OQ-6, OQ-7 | Stage 0 exit; all CI perf gates | **ACCEPTED** |
 | `ADR-0003` | Repository layout and folder ownership | DD-002, X-3, X-4, X-5, X-7 | **Stage 0** (IG-2) | **ACCEPTED** |
-| `ADR-0004` | Process model | DD-006 | Stage 0 | Planned |
-| `ADR-0005` | Data egress policy | DD-011 | Stage 0 | Planned |
-| `ADR-0006` | Generated IPC contract | DD-003 | Stage 1 | Planned |
-| `ADR-0007` | Topology identity and layout persistence | DD-009 | Stage 2 | Planned |
-| `ADR-0008` | State ownership and the snapshot/delta protocol | DD-001 | Stage 3 | Planned |
-| `ADR-0009` | Concurrency model | DD-007 | Stage 3 | Planned |
-| `ADR-0010` | Theme data model | DD-005 | Stage 5 | Planned |
-| `ADR-0011` | Effect budgeting and degradation | DD-010 | Stage 5 | Planned |
-| `ADR-0012` | Plugin sandbox model | DD-004 | Stage 7 | Planned |
-| `ADR-0013` | Plugin parity for first-party surfaces | DD-008 | Stage 7 | Planned |
+| `ADR-0004` | Display topology identity and transaction model | DD-009 | **Stage 2**; Stage 3 layout binding | **ACCEPTED** |
+| — | Process model | DD-006 | Stage 0 | Owed |
+| — | Data egress policy | DD-011 | Stage 0 | Owed |
+| — | Generated IPC contract | DD-003 | Stage 1 | Owed |
+| — | State ownership and the snapshot/delta protocol | DD-001 | Stage 3 | Owed |
+| — | Concurrency model | DD-007 | Stage 3 | Owed |
+| — | Theme data model | DD-005 | Stage 5 | Owed |
+| — | Effect budgeting and degradation | DD-010 | Stage 5 | Owed |
+| — | Plugin sandbox model | DD-004 | Stage 7 | Owed |
+| — | Plugin parity for first-party surfaces | DD-008 | Stage 7 | Owed |
+
+**D-10a.** An owed ADR is a **required deliverable gating its stage**, whatever number it receives. Beginning a stage without its ADR violates `PROJECT_CONSTITUTION.md` §4. Dropping the pre-assigned numbers removes a false ordering promise; it removes no obligation.
 
 **D-11.** ADR numbers are **immutable once merged**. A superseded ADR keeps its number and gains a `Superseded by` field; it is never deleted, renumbered, or rewritten. The historical record of a decision is as valuable as the decision.
 
@@ -279,7 +285,7 @@ The eight seams in §26 are **designed for, not built**. What is ratified today 
 
 ## 5. Rejected Alternatives
 
-Alternatives are evaluated against the *ratification* decision. The alternatives to individual design decisions (DD-001…DD-011) are recorded in §23 of the architecture and elaborated by ADR-0004…ADR-0013; they are not re-litigated here.
+Alternatives are evaluated against the *ratification* decision. The alternatives to individual design decisions (DD-001…DD-011) are recorded in §23 of the architecture and elaborated by the per-decision ADRs in the §3.5 register; they are not re-litigated here.
 
 ### RA-1 — Defer ratification until subsystem specifications exist
 
@@ -379,7 +385,7 @@ Separating [`ADR-0002`](./ADR-0002-performance-budgets.md) and [`ADR-0003`](./AD
 | C-3 | The §25.5 enforcement matrix becomes a build requirement. Tooling that does not yet exist (`dependency-cruiser` config, `scripts/lint-cfg-usage.mjs`, `scripts/lint-ipc-hotpath.mjs`, contract diff gate) is now **required work in Stage 0–1**, not optional hardening. |
 | C-4 | The §25.1 stage order is binding. Feature work before Stage 1 (the generated contract) is prohibited by IG-3. |
 | C-5 | The eight subsystem specifications in §27.2 are unblocked and each is now a tracked deliverable with a declared parent. |
-| C-6 | ADR-0004…ADR-0013 (§3.5) become required deliverables, each gating its stage. Beginning a stage without its ADR violates `PROJECT_CONSTITUTION.md` §4. |
+| C-6 | Every per-decision ADR in the §3.5 register becomes a required deliverable, each gating its stage. Beginning a stage without its ADR violates `PROJECT_CONSTITUTION.md` §4 (D-10a). |
 | C-7 | Research findings are routed to `knowledge/` (§27.4) and MUST NOT be inlined into architecture documents. |
 
 ### 7.2 Costs Accepted
@@ -458,7 +464,7 @@ This ADR and the architecture it ratifies are **re-opened automatically** when a
 | 1 | Reconcile `PRODUCT_SPEC.md` against §3.1 quality attribute scenarios and §3.2 constraints | `ARCHITECTURE_CHANGE` issue; amendment PR |
 | 1 | Apply C-16…C-18 text amendments to `SYSTEM_ARCHITECTURE.md` | Amendment PR, referencing this ADR |
 | 1–2 | Author §27.2 subsystem specifications, each declaring this baseline as parent | Eight Level 2 documents |
-| Per §25.1 | ADR-0004…ADR-0013 land ahead of the stage each blocks | Per §3.5 register |
+| Per §25.1 | Each per-decision ADR lands ahead of the stage it blocks | Per §3.5 register |
 
 ### 10.2 Expected Revisions
 
