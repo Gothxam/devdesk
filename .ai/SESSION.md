@@ -37,3 +37,44 @@
 
 
 
+
+---
+
+## 📅 Session Log: 2026-08-08 — Sprint 1 Day 3 (Display Subsystem)
+
+- **Agent**: Claude Opus 5 (Anthropic) via Claude Code
+- **Task**: Sprint 1 commits C17–C19, plus three architectural refinements to the
+  display subsystem (confidence-based identity, transactional change events, an
+  immutable display graph).
+- **Files Changed**:
+  - `crates/devdesk-platform/` — `platform.rs`, `feature.rs`, `error.rs`,
+    `display.rs`, `backend.rs`, `unsupported.rs`, `win/{mod,monitors,edid,watcher}.rs`,
+    `tests.rs`, `Cargo.toml`, `README.md`
+  - `crates/devdesk-display/` — `identity.rs`, `hash.rs`, `error.rs`,
+    `enumerate.rs`, `graph.rs`, `diff.rs`, `transaction.rs`, `hotplug.rs`,
+    `geometry.rs`, `monitor.rs`, `topology.rs`, `tests/`, `Cargo.toml`, `README.md`
+  - `tests/perf/topology.bench.rs`, `knowledge/performance/2026-08-08-display-topology.md`
+  - Root `Cargo.toml` (the `windows` workspace dependency, SEC-20 justified)
+- **Decisions Made**:
+  - `PlatformBackend::enumerate_monitors` returns `RawMonitorInfo`, not
+    `MonitorDescriptor`. `ADR-0003` §4.1 makes display depend on platform, so a
+    domain return type would invert that and put display policy in the OS shim.
+    Recorded as a deviation from the illustrative trait in
+    `SYSTEM_ARCHITECTURE.md` §19.1, which predates the dependency order.
+  - Identity is confidence-based (`Exact`/`Strong`/`Probable`/`Weak`) rather than
+    string equality, because no single reported signal is both always present and
+    always stable. An ambiguous match resolves to nothing; two absent signals are
+    never agreement.
+  - Fingerprints and identity keys hash with a pinned FNV-1a, not `DefaultHasher`.
+    These values are persisted (`WD-4`) and `DefaultHasher`'s algorithm may change
+    between Rust releases, which would orphan every saved layout on a toolchain bump.
+  - `WD-2` compliance tightened: scale-taking conversions are now crate-private and
+    the public API hangs off `MonitorDescriptor`.
+  - `TopologyGeneration` added alongside `TopologyFingerprint`. A fingerprint
+    answers *which* arrangement; only a generation answers *how recent*, and
+    undock/redock returns to a fingerprint already seen.
+- **Next Steps**:
+  - C20 (`feat(app): create surface windows hidden and show on first frame`) is
+    open pending a scope decision — it is `feat(app)`, not display.
+  - Day 4 — widget runtime (C21–C25).
+
