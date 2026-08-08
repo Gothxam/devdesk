@@ -24,6 +24,7 @@ use devdesk_display::{
 
 use super::event::{AssociationReason, WindowEvent};
 use super::id::SurfaceId;
+use super::reveal::{RevealError, RevealOutcome};
 use super::surface::{AssociationIntent, SurfaceError, SurfaceManager};
 
 /// Why a topology transaction was not adopted.
@@ -58,6 +59,27 @@ pub enum WindowError {
     /// somewhere nobody asked for.
     #[error("monitor {monitor} is not attached")]
     MonitorNotAttached { monitor: MonitorId },
+
+    /// A reveal step was refused.
+    #[error(transparent)]
+    Reveal(#[from] RevealError),
+}
+
+/// Turns a reveal outcome into the event it warrants, if any.
+///
+/// A step that had already happened produces nothing. Emitting an event for it
+/// would make "the surface reached `Revealed`" indistinguishable from "the
+/// surface was already `Revealed` and something asked again", and a consumer
+/// acting on the second would show a window that is already visible.
+fn reveal_events(surface: &SurfaceId, outcome: RevealOutcome) -> Vec<WindowEvent> {
+    match outcome.advanced() {
+        Some((from, to)) => vec![WindowEvent::SurfaceRevealAdvanced {
+            surface: surface.clone(),
+            from,
+            to,
+        }],
+        None => Vec::new(),
+    }
 }
 
 /// The window subsystem's authoritative view of the displays and surfaces.
@@ -168,6 +190,61 @@ impl WindowManager {
             to: Some(monitor.clone()),
             reason: AssociationReason::Assigned,
         }])
+    }
+
+    /// The host reports that a surface's window now exists.
+    ///
+    /// Advances `Created` → `Attached`. The window is hidden at this point and
+    /// stays hidden: existing is not the same as being ready to look at.
+    ///
+    /// # Errors
+    ///
+    /// [`WindowError::Surface`] if the surface is unknown, and
+    /// [`WindowError::Reveal`] if the step is refused.
+    pub fn note_window_created(
+        &mut self,
+        surface: &SurfaceId,
+    ) -> Result<Vec<WindowEvent>, WindowError> {
+        let outcome = self.surfaces.reveal_mut(surface)?.attach()?;
+        Ok(reveal_events(surface, outcome))
+    }
+
+    /// The host reports that a surface has painted its first frame.
+    ///
+    /// Advances `Attached` → `FirstFrameReady` and then immediately reveals.
+    /// The two are one operation on purpose: `AC-FRE-1.1` is that a surface
+    /// becomes visible **when** its content is ready, and leaving the reveal to
+    /// a separate call would create a window in which a caller could forget,
+    /// delay, or reorder it. There is nothing to decide between the two states —
+    /// the frame is ready, so the surface is shown.
+    ///
+    /// Signalling again after the first time changes nothing and emits nothing.
+    /// A webview that reloads reports another first frame, and hiding and
+    /// re-showing for it would produce the flash on every reload that this
+    /// mechanism exists to prevent.
+    ///
+    /// # Errors
+    ///
+    /// [`WindowError::Surface`] if the surface is unknown, and
+    /// [`WindowError::Reveal`] if no window has been reported for it — a frame
+    /// cannot be ready for a window nobody created.
+    pub fn note_first_frame(
+        &mut self,
+        surface: &SurfaceId,
+    ) -> Result<Vec<WindowEvent>, WindowError> {
+        let machine = self.surfaces.reveal_mut(surface)?;
+
+        let painted = machine.first_frame()?;
+        let mut events = reveal_events(surface, painted);
+
+        // Only from the transition. A surface that was already revealed does not
+        // reveal again, and one that could not paint never reaches here.
+        if painted.advanced().is_some() {
+            let revealed = machine.reveal()?;
+            events.extend(reveal_events(surface, revealed));
+        }
+
+        Ok(events)
     }
 
     /// Removes a surface and retires its window.

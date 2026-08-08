@@ -20,11 +20,13 @@
 pub mod event;
 pub mod id;
 pub mod manager;
+pub mod reveal;
 pub mod surface;
 
 pub use event::{AssociationReason, WindowEvent};
 pub use id::{SurfaceId, WindowId, WindowIdAllocator};
 pub use manager::{ObserveError, WindowError, WindowManager};
+pub use reveal::{RevealError, RevealOutcome, RevealState, RevealStateMachine, RevealStep};
 pub use surface::{AssociationIntent, SurfaceError, SurfaceManager, SurfaceRecord};
 
 #[cfg(test)]

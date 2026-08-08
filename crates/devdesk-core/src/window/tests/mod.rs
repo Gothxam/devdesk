@@ -7,4 +7,5 @@
 mod fixtures;
 mod ids;
 mod manager;
+mod reveal;
 mod surfaces;

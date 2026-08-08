@@ -12,6 +12,7 @@
 use devdesk_display::{MonitorId, TopologyFingerprint, TopologyGeneration};
 
 use super::id::{SurfaceId, WindowId};
+use super::reveal::RevealState;
 
 /// Why a surface's monitor association changed.
 ///
@@ -68,6 +69,17 @@ pub enum WindowEvent {
         from: Option<MonitorId>,
         to: Option<MonitorId>,
         reason: AssociationReason,
+    },
+
+    /// A surface advanced toward being visible.
+    ///
+    /// Emitted only on an actual transition. Repeating a step that has already
+    /// happened — a webview reloading and signalling its first frame again —
+    /// changes nothing and says nothing.
+    SurfaceRevealAdvanced {
+        surface: SurfaceId,
+        from: RevealState,
+        to: RevealState,
     },
 
     /// A surface was removed and its window retired.

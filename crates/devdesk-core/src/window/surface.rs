@@ -30,6 +30,7 @@ use std::collections::BTreeMap;
 use devdesk_display::MonitorId;
 
 use super::id::{SurfaceId, WindowId, WindowIdAllocator};
+use super::reveal::{RevealState, RevealStateMachine};
 
 /// Why a surface registry operation failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -64,6 +65,7 @@ pub struct SurfaceRecord {
     window: WindowId,
     monitor: Option<MonitorId>,
     preferred: Option<MonitorId>,
+    reveal: RevealStateMachine,
 }
 
 impl SurfaceRecord {
@@ -91,6 +93,24 @@ impl SurfaceRecord {
     #[must_use]
     pub const fn preferred_monitor(&self) -> Option<&MonitorId> {
         self.preferred.as_ref()
+    }
+
+    /// How far this surface has progressed toward being visible.
+    #[must_use]
+    pub const fn reveal(&self) -> RevealStateMachine {
+        self.reveal
+    }
+
+    /// The reveal state.
+    #[must_use]
+    pub const fn reveal_state(&self) -> RevealState {
+        self.reveal.state()
+    }
+
+    /// Whether this surface is on screen.
+    #[must_use]
+    pub const fn is_visible(&self) -> bool {
+        self.reveal.is_visible()
     }
 
     /// Whether the surface is somewhere other than where it belongs.
@@ -145,6 +165,7 @@ impl SurfaceManager {
             window: self.windows.allocate(),
             monitor: None,
             preferred: None,
+            reveal: RevealStateMachine::new(),
         };
 
         Ok(self.surfaces.entry(surface).or_insert(record))
@@ -237,5 +258,32 @@ impl SurfaceManager {
     /// borrow of `iter()` would not allow.
     pub(super) fn ids(&self) -> Vec<SurfaceId> {
         self.surfaces.keys().cloned().collect()
+    }
+
+    /// Mutable access to one record's reveal machine.
+    ///
+    /// Crate-internal: reveal steps are driven through [`super::WindowManager`],
+    /// which is where the show command is emitted from. Handing a caller a
+    /// mutable machine would let it advance the state without the command that
+    /// makes the state true of a real window.
+    pub(super) fn reveal_mut(
+        &mut self,
+        surface: &SurfaceId,
+    ) -> Result<&mut RevealStateMachine, SurfaceError> {
+        self.surfaces
+            .get_mut(surface)
+            .map(|record| &mut record.reveal)
+            .ok_or_else(|| SurfaceError::Unknown {
+                surface: surface.clone(),
+            })
+    }
+
+    /// The surfaces currently on screen, in identity order.
+    #[must_use]
+    pub fn visible(&self) -> Vec<&SurfaceRecord> {
+        self.surfaces
+            .values()
+            .filter(|record| record.is_visible())
+            .collect()
     }
 }
