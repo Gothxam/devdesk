@@ -195,8 +195,12 @@ impl WindowManager {
             reason: AssociationReason::Assigned,
         });
 
-        // No command. Which display a surface belongs to is association; moving
-        // a window there is placement, and placement is the layout actor's.
+        // Assignment itself produces no command: which display a surface belongs
+        // to is association, and moving a window there is placement. The one
+        // exception is a show already owed to a surface that had nowhere to
+        // appear — giving it a display is what discharges that.
+        outcome.absorb(self.issue_pending_show(surface));
+
         Ok(outcome)
     }
 
@@ -252,20 +256,59 @@ impl WindowManager {
             let revealed = machine.reveal()?;
             outcome.extend_events(reveal_events(surface, revealed));
 
-            // The one place a show command is produced, and it is reachable only
-            // from the transition into `Revealed`, which is reachable only from
-            // `FirstFrameReady`. That chain is the no-flash guarantee.
+            // The surface has painted, so it is owed a show. Reaching `Revealed`
+            // is what makes the debt legitimate — the chain from
+            // `FirstFrameReady` is the no-flash guarantee — but it does not by
+            // itself decide when the command goes out.
             if revealed.revealed_now() {
-                if let Some(record) = self.surfaces.get(surface) {
-                    outcome.push_command(WindowCommand::Show {
-                        surface: surface.clone(),
-                        window: record.window(),
-                    });
-                }
+                self.surfaces.set_show_pending(surface, true)?;
+                outcome.absorb(self.issue_pending_show(surface));
             }
         }
 
         Ok(outcome)
+    }
+
+    /// Issues an owed show command, if the surface has somewhere to be shown.
+    ///
+    /// A surface can reach `Revealed` while no display is attached: it painted
+    /// into a hidden window on a machine whose lid has just closed. Showing it
+    /// then would ask the windowing system to make something visible on a
+    /// desktop that has no visible area, and where the window lands when a
+    /// display returns is nobody's decision. So the command waits, and the debt
+    /// is discharged by the next association that gives the surface a display.
+    ///
+    /// This is also the recovery path for a show the windowing system refused:
+    /// the debt is still recorded, and the next association reissues it.
+    fn issue_pending_show(&self, surface: &SurfaceId) -> WindowOutcome {
+        let mut outcome = WindowOutcome::new();
+
+        let Some(record) = self.surfaces.get(surface) else {
+            return outcome;
+        };
+
+        if record.is_show_pending() && record.monitor().is_some() {
+            outcome.push_command(WindowCommand::Show {
+                surface: surface.clone(),
+                window: record.window(),
+            });
+        }
+
+        outcome
+    }
+
+    /// Records that a show command reached the windowing system.
+    ///
+    /// Called by [`super::SurfaceHost`] after the command succeeded, so a
+    /// refusal leaves the debt outstanding rather than silently dropping it.
+    ///
+    /// # Errors
+    ///
+    /// [`WindowError::Surface`] if the surface was removed between issuing the
+    /// command and confirming it.
+    pub fn confirm_shown(&mut self, surface: &SurfaceId) -> Result<(), WindowError> {
+        self.surfaces.set_show_pending(surface, false)?;
+        Ok(())
     }
 
     /// Removes a surface and retires its window.
@@ -309,9 +352,13 @@ impl WindowManager {
     ///    change that does not affect a surface must not look like one that
     ///    does, or every consumer re-does work for every unrelated display
     ///    event.
-    fn reassociate_all(&mut self) -> Vec<WindowEvent> {
+    /// 4. **Any surface that still owes a show and now has a display** gets the
+    ///    command reissued, whether or not its association moved. One pass at
+    ///    the end rather than inside the loop, so a surface that both moved and
+    ///    owed a show gets exactly one command rather than two.
+    fn reassociate_all(&mut self) -> WindowOutcome {
         let default = self.default_monitor_id();
-        let mut events = Vec::new();
+        let mut outcome = WindowOutcome::new();
 
         for id in self.surfaces.ids() {
             let Some(record) = self.surfaces.get(&id) else {
@@ -359,7 +406,7 @@ impl WindowManager {
             };
 
             if let Ok(from) = self.surfaces.associate(&id, target.clone(), intent) {
-                events.push(WindowEvent::SurfaceAssociated {
+                outcome.push_event(WindowEvent::SurfaceAssociated {
                     surface: id,
                     from,
                     to: target,
@@ -368,7 +415,14 @@ impl WindowManager {
             }
         }
 
-        events
+        // A topology change is the natural moment to settle outstanding shows:
+        // it is when a detached surface gains a display, and it is rare enough
+        // that reissuing a refused command here cannot become a spin.
+        for id in self.surfaces.ids() {
+            outcome.absorb(self.issue_pending_show(&id));
+        }
+
+        outcome
     }
 
     /// Adopts a topology transaction.
@@ -404,11 +458,11 @@ impl WindowManager {
         // makes is against the new desktop. Doing it before would associate
         // against a topology the manager has already been told is gone.
         //
-        // It produces no commands. A display change moves a surface's
-        // association; moving its window is placement, which this crate does not
-        // do — and a hidden surface stays hidden through a docking event, which
-        // is the correct behaviour rather than an omission.
-        outcome.extend_events(self.reassociate_all());
+        // The only command it can produce is a show that was already owed to a
+        // surface that had painted with nowhere to appear. A display change
+        // never moves a window — that is placement — and a surface that has not
+        // painted stays hidden through a docking event.
+        outcome.absorb(self.reassociate_all());
 
         Ok(outcome)
     }

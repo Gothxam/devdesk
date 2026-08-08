@@ -111,8 +111,9 @@ impl SurfaceHost {
     /// [`HostError::Observe`] if the transaction is stale, and [`HostError::Sink`]
     /// if a command failed.
     pub fn observe(&self, transaction: &TopologyTransaction) -> Result<WindowOutcome, HostError> {
-        let outcome = self.manager().observe(transaction)?;
-        self.dispatch(&outcome)?;
+        let mut manager = self.manager();
+        let outcome = manager.observe(transaction)?;
+        self.dispatch(&mut manager, &outcome)?;
         Ok(outcome)
     }
 
@@ -123,8 +124,19 @@ impl SurfaceHost {
     /// [`HostError::Window`] if the identity is taken, and [`HostError::Sink`] if
     /// the window could not be created.
     pub fn register(&self, surface: SurfaceId) -> Result<WindowOutcome, HostError> {
-        let outcome = self.manager().register_surface(surface)?;
-        self.dispatch(&outcome)?;
+        let mut manager = self.manager();
+        let outcome = manager.register_surface(surface.clone())?;
+
+        if let Err(error) = self.dispatch(&mut manager, &outcome) {
+            // Unlike a failed show, a failed create is rolled back. Nothing
+            // exists yet, so there is nothing to be inconsistent with — and
+            // leaving the surface registered would hold its identity against a
+            // window that was never made, so a retry would fail as a duplicate
+            // and the surface would be permanently unusable.
+            let _ = manager.remove_surface(&surface);
+            return Err(error);
+        }
+
         Ok(outcome)
     }
 
@@ -143,8 +155,9 @@ impl SurfaceHost {
         surface: &SurfaceId,
         monitor: &MonitorId,
     ) -> Result<WindowOutcome, HostError> {
-        let outcome = self.manager().assign(surface, monitor)?;
-        self.dispatch(&outcome)?;
+        let mut manager = self.manager();
+        let outcome = manager.assign(surface, monitor)?;
+        self.dispatch(&mut manager, &outcome)?;
         Ok(outcome)
     }
 
@@ -154,8 +167,9 @@ impl SurfaceHost {
     ///
     /// [`HostError::Window`] if the surface is unknown.
     pub fn report_window_created(&self, surface: &SurfaceId) -> Result<WindowOutcome, HostError> {
-        let outcome = self.manager().note_window_created(surface)?;
-        self.dispatch(&outcome)?;
+        let mut manager = self.manager();
+        let outcome = manager.note_window_created(surface)?;
+        self.dispatch(&mut manager, &outcome)?;
         Ok(outcome)
     }
 
@@ -169,8 +183,9 @@ impl SurfaceHost {
     /// [`HostError::Window`] if the surface is unknown or has no window yet, and
     /// [`HostError::Sink`] if the show failed.
     pub fn report_first_frame(&self, surface: &SurfaceId) -> Result<WindowOutcome, HostError> {
-        let outcome = self.manager().note_first_frame(surface)?;
-        self.dispatch(&outcome)?;
+        let mut manager = self.manager();
+        let outcome = manager.note_first_frame(surface)?;
+        self.dispatch(&mut manager, &outcome)?;
         Ok(outcome)
     }
 
@@ -181,8 +196,9 @@ impl SurfaceHost {
     /// [`HostError::Window`] if the surface is unknown, and [`HostError::Sink`]
     /// if the window could not be destroyed.
     pub fn remove(&self, surface: &SurfaceId) -> Result<WindowOutcome, HostError> {
-        let outcome = self.manager().remove_surface(surface)?;
-        self.dispatch(&outcome)?;
+        let mut manager = self.manager();
+        let outcome = manager.remove_surface(surface)?;
+        self.dispatch(&mut manager, &outcome)?;
         Ok(outcome)
     }
 
@@ -194,8 +210,23 @@ impl SurfaceHost {
         read(&self.manager())
     }
 
-    /// Performs an outcome's commands, in order.
-    fn dispatch(&self, outcome: &WindowOutcome) -> Result<(), HostError> {
+    /// Performs an outcome's commands, in order, still holding the state lock.
+    ///
+    /// **The lock is held across the sink calls on purpose.** Computing under
+    /// the lock and dispatching outside it looks cheaper and is wrong: two
+    /// threads can compute in one order and dispatch in the other, so a show for
+    /// a window can reach the windowing system before the create that makes it.
+    /// The state would be perfectly consistent and the desktop would not.
+    ///
+    /// The cost is that window creation serialises. That is the right trade —
+    /// creation happens at startup and on user action, never in a frame, and
+    /// the alternative is a reordering bug that reproduces once in a thousand
+    /// launches.
+    fn dispatch(
+        &self,
+        manager: &mut WindowManager,
+        outcome: &WindowOutcome,
+    ) -> Result<(), HostError> {
         for command in outcome.commands() {
             self.sink
                 .execute(command)
@@ -203,6 +234,13 @@ impl SurfaceHost {
                     command: Box::new(command.clone()),
                     detail,
                 })?;
+
+            // Confirmed only after the windowing system accepted it. A refusal
+            // leaves the debt recorded, so the next association reissues it
+            // rather than the surface being silently believed visible.
+            if command.makes_visible() {
+                manager.confirm_shown(command.surface())?;
+            }
         }
         Ok(())
     }

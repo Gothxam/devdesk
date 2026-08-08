@@ -24,3 +24,7 @@ serde_json = { workspace = true }
 [[test]]
 name = "window_lifecycle"
 path = "../../tests/integration/window_lifecycle.rs"
+
+[[test]]
+name = "window_races"
+path = "../../tests/integration/window_races.rs"

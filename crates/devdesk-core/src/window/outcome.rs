@@ -63,4 +63,10 @@ impl WindowOutcome {
     pub(super) fn extend_events(&mut self, events: impl IntoIterator<Item = WindowEvent>) {
         self.events.extend(events);
     }
+
+    /// Appends another outcome, preserving command order.
+    pub(super) fn absorb(&mut self, other: Self) {
+        self.events.extend(other.events);
+        self.commands.extend(other.commands);
+    }
 }

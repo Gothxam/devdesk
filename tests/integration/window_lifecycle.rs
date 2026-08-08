@@ -14,150 +14,14 @@
 //! precondition is the intended use.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use devdesk_core::window::{
-    HostError, RevealState, SurfaceHost, SurfaceId, WindowCommand, WindowCommandSink, WindowId,
-};
-use devdesk_display::{MonitorDescriptor, SharedTopology, Topology};
-use devdesk_platform::{Connector, ConnectorKind, RawMonitorInfo, RawRect};
+use devdesk_core::window::{HostError, RevealState, WindowCommand, WindowId};
+use devdesk_display::SharedTopology;
 
-// ---------------------------------------------------------------- fixtures --
+mod support;
 
-fn monitor(index: u32, serial: &str, x: i32, primary: bool) -> MonitorDescriptor {
-    let raw = RawMonitorInfo {
-        device_path: Some(format!(r"\\?\DISPLAY#ACM1234#5&port{index}&0&UID{index}")),
-        adapter: Some(format!("00000000dead:{index}")),
-        serial: Some(serial.to_owned()),
-        connector: Some(Connector {
-            kind: ConnectorKind::DisplayPort,
-            instance: index,
-        }),
-        manufacturer: Some("ACM".to_owned()),
-        product_code: Some(0x1234),
-        friendly_name: Some(format!("ACME {serial}")),
-        os_device_name: Some(format!(r"\\.\DISPLAY{}", index + 1)),
-        bounds: RawRect {
-            x,
-            y: 0,
-            width: 1920,
-            height: 1080,
-        },
-        work_area: RawRect {
-            x,
-            y: 0,
-            width: 1920,
-            height: 1040,
-        },
-        dpi: if index == 0 { 96 } else { 144 },
-        refresh_millihertz: Some(59_940),
-        is_primary: primary,
-        os_enumeration_index: index,
-    };
-
-    MonitorDescriptor::from_raw(&raw).expect("the fixture must describe a usable display")
-}
-
-/// Laptop panel at 100% plus an external display at 150% — mixed DPI, which
-/// `PS-4` makes the assumed case.
-fn docked() -> Topology {
-    Topology::new(vec![
-        monitor(0, "SN-LAPTOP", 0, true),
-        monitor(1, "SN-EXTERNAL", 1920, false),
-    ])
-}
-
-fn undocked() -> Topology {
-    Topology::new(vec![monitor(0, "SN-LAPTOP", 0, true)])
-}
-
-fn dark() -> Topology {
-    Topology::new(Vec::new())
-}
-
-fn surface(name: &str) -> SurfaceId {
-    SurfaceId::new(name).expect("a fixture surface id must be valid")
-}
-
-// -------------------------------------------------------------------- sink --
-
-/// A sink that records what it was asked to do, and can be told to fail.
-#[derive(Debug, Default)]
-struct RecordingSink {
-    log: Mutex<Vec<WindowCommand>>,
-    fail_show: Mutex<bool>,
-}
-
-impl RecordingSink {
-    fn shared() -> Arc<Self> {
-        Arc::new(Self::default())
-    }
-
-    fn log(&self) -> Vec<WindowCommand> {
-        self.log
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
-    }
-
-    fn set_fail_show(&self, fail: bool) {
-        *self
-            .fail_show
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = fail;
-    }
-
-    /// Whether a window was ever shown before it was created.
-    ///
-    /// The property `AC-FRE-1.1` reduces to at this layer.
-    fn shown_before_created(&self) -> bool {
-        let mut created: Vec<WindowId> = Vec::new();
-        for command in self.log() {
-            match command {
-                WindowCommand::CreateHidden { window, .. } => created.push(window),
-                WindowCommand::Show { window, .. } if !created.contains(&window) => return true,
-                _ => {}
-            }
-        }
-        false
-    }
-
-    fn count(&self, matching: impl Fn(&WindowCommand) -> bool) -> usize {
-        self.log().iter().filter(|c| matching(c)).count()
-    }
-}
-
-/// The sink handed to the host, sharing one log with the test.
-///
-/// A newtype because the orphan rule forbids implementing a foreign trait for
-/// `Arc<RecordingSink>` directly.
-struct SinkHandle(Arc<RecordingSink>);
-
-impl WindowCommandSink for SinkHandle {
-    fn execute(&self, command: &WindowCommand) -> Result<(), String> {
-        if command.makes_visible()
-            && *self
-                .0
-                .fail_show
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-        {
-            return Err("the windowing system refused".to_owned());
-        }
-
-        self.0
-            .log
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(command.clone());
-        Ok(())
-    }
-}
-
-fn host() -> (SurfaceHost, Arc<RecordingSink>) {
-    let sink = RecordingSink::shared();
-    (SurfaceHost::new(SinkHandle(Arc::clone(&sink))), sink)
-}
+use support::{dark, docked, host, surface, undocked};
 
 // ------------------------------------------------------------------- tests --
 
@@ -309,15 +173,37 @@ fn a_show_that_fails_does_not_retry_forever() {
     let failed = host.report_first_frame(&clock);
     assert!(matches!(failed, Err(HostError::Sink { .. })));
 
-    // The manager still believes it is revealed, so a second frame signal is a
-    // no-op rather than another attempt.
+    // The surface has painted, so the reveal state stands. What is outstanding
+    // is the command, and the debt is recorded rather than lost.
+    host.with_manager(|manager| {
+        let record = manager.surfaces().get(&clock).expect("registered");
+        assert_eq!(record.reveal_state(), RevealState::Revealed);
+        assert!(record.is_show_pending());
+    });
+
+    // A second frame signal is a no-op rather than another attempt: repeating
+    // the reload must not become a retry loop against a window that will not
+    // show.
     sink.set_fail_show(false);
     let again = host.report_first_frame(&clock).expect("a reload");
     assert!(
         again.commands().is_empty(),
-        "a failed show must not become a retry loop"
+        "a failed show must not be retried by the frame path"
     );
     assert_eq!(sink.count(WindowCommand::makes_visible), 0);
+
+    // Recovery is bounded to topology changes, which are rare. The next one
+    // settles the debt.
+    host.observe(&displays.publish(undocked()).expect("a display change"))
+        .expect("adopted");
+    assert_eq!(sink.count(WindowCommand::makes_visible), 1);
+    host.with_manager(|manager| {
+        assert!(!manager
+            .surfaces()
+            .get(&clock)
+            .expect("registered")
+            .is_show_pending());
+    });
 }
 
 #[test]

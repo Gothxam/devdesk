@@ -66,6 +66,7 @@ pub struct SurfaceRecord {
     monitor: Option<MonitorId>,
     preferred: Option<MonitorId>,
     reveal: RevealStateMachine,
+    pending_show: bool,
 }
 
 impl SurfaceRecord {
@@ -111,6 +112,23 @@ impl SurfaceRecord {
     #[must_use]
     pub const fn is_visible(&self) -> bool {
         self.reveal.is_visible()
+    }
+
+    /// Whether the surface should be on screen but the host has not shown it yet.
+    ///
+    /// True in two situations, both temporary:
+    ///
+    /// - the surface painted while no display was attached, so there was nowhere
+    ///   to show it;
+    /// - the show command was issued and the windowing system refused it.
+    ///
+    /// Either way the reveal state has already moved to `Revealed` — the surface
+    /// *has* painted, which is what that state means — and the outstanding work
+    /// is a command, not a transition. The show is reissued the next time the
+    /// surface gains a display.
+    #[must_use]
+    pub const fn is_show_pending(&self) -> bool {
+        self.pending_show
     }
 
     /// Whether the surface is somewhere other than where it belongs.
@@ -166,6 +184,7 @@ impl SurfaceManager {
             monitor: None,
             preferred: None,
             reveal: RevealStateMachine::new(),
+            pending_show: false,
         };
 
         Ok(self.surfaces.entry(surface).or_insert(record))
@@ -276,6 +295,37 @@ impl SurfaceManager {
             .ok_or_else(|| SurfaceError::Unknown {
                 surface: surface.clone(),
             })
+    }
+
+    /// Marks a surface as owing, or no longer owing, a show command.
+    ///
+    /// Crate-internal for the same reason as [`SurfaceManager::reveal_mut`]:
+    /// whether a show is outstanding is only meaningful alongside the command
+    /// that discharges it, and both are [`super::WindowManager`]'s to decide.
+    pub(super) fn set_show_pending(
+        &mut self,
+        surface: &SurfaceId,
+        pending: bool,
+    ) -> Result<(), SurfaceError> {
+        self.surfaces
+            .get_mut(surface)
+            .map(|record| record.pending_show = pending)
+            .ok_or_else(|| SurfaceError::Unknown {
+                surface: surface.clone(),
+            })
+    }
+
+    /// The surfaces that have painted but are not on screen, in identity order.
+    ///
+    /// Empty on a healthy desktop. A non-empty list means either that displays
+    /// are unplugged or that the windowing system refused a show, and both are
+    /// worth being able to ask about.
+    #[must_use]
+    pub fn awaiting_show(&self) -> Vec<&SurfaceRecord> {
+        self.surfaces
+            .values()
+            .filter(|record| record.is_show_pending())
+            .collect()
     }
 
     /// The surfaces currently on screen, in identity order.
