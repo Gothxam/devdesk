@@ -30,8 +30,10 @@
   - `.ai/SESSION.md`
 - **Decisions Made**:
   - Installed Rust Toolchain (`rustc 1.97.1`, `cargo 1.97.1`, `rustup 1.29.0`).
-  - Verified `C:\Users\gauta\.cargo\bin` is configured in User PATH.
+  - Installed Visual Studio 2022 C++ Build Tools (`Microsoft.VisualStudio.Workload.VCTools`).
+  - Verified MSVC `link.exe` native Rust compilation probe cleanly (`x86_64-pc-windows-msvc`).
 - **Next Steps**:
   - Initialize Tauri core engine in `apps/`.
+
 
 
