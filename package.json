@@ -11,9 +11,12 @@
     "check:rust": "cargo clippy --all-targets --all-features -- -D warnings",
     "check:fmt:rust": "cargo fmt --all -- --check",
     "check:types": "pnpm -r --filter \"./packages/*\" run typecheck",
-    "check": "pnpm run check:fmt:rust && pnpm run check:rust && pnpm run check:types"
+    "check:layering": "depcruise --config configs/dependency-cruiser/.dependency-cruiser.cjs packages",
+    "check:cfg": "node scripts/lint-cfg-usage.mjs",
+    "check": "pnpm run check:fmt:rust && pnpm run check:rust && pnpm run check:types && pnpm run check:layering && pnpm run check:cfg"
   },
   "devDependencies": {
+    "dependency-cruiser": "17.0.1",
     "typescript": "5.9.3"
   }
 }

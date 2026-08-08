@@ -60,7 +60,11 @@ module.exports = {
   ],
   options: {
     doNotFollow: { path: 'node_modules' },
-    tsConfig: { fileName: 'configs/typescript/base.json' },
+    // No tsConfig: module resolution goes through pnpm workspace links and the
+    // `exports` map of each package, which is the surface DR-5 defines. Pointing
+    // dependency-cruiser at the base tsconfig makes TypeScript resolve `include`
+    // relative to configs/typescript/, which holds no sources.
     enhancedResolveOptions: { exportsFields: ['exports'], conditionNames: ['import', 'types'] },
+    tsPreCompilationDeps: true,
   },
 };
