@@ -13,7 +13,9 @@
     "check:types": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" run typecheck",
     "check:layering": "depcruise --config configs/dependency-cruiser/.dependency-cruiser.cjs packages",
     "check:cfg": "node scripts/lint-cfg-usage.mjs",
-    "check": "pnpm run check:fmt:rust && pnpm run check:rust && pnpm run check:types && pnpm run check:layering && pnpm run check:cfg"
+    "check": "pnpm run check:fmt:rust && pnpm run check:rust && pnpm run check:types && pnpm run check:layering && pnpm run check:cfg && pnpm run check:contract",
+    "contract:export": "cargo run -q -p devdesk-app --bin export-contract",
+    "check:contract": "node scripts/check-contract-drift.mjs"
   },
   "devDependencies": {
     "dependency-cruiser": "17.0.1",

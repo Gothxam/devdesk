@@ -15,6 +15,12 @@ publish = false
 # its own version of a shared dependency is prohibited: divergent versions of serde or
 # tokio across crates produce link-time duplication that presents as trait mismatches.
 [workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+specta = { version = "2.0.0-rc", features = ["derive"] }
+specta-typescript = "0.0.9"
+tauri = { version = "2", features = ["isolation", "protocol-asset"] }
+tauri-specta = { version = "2.0.0-rc", features = ["derive", "typescript"] }
+thiserror = "2"
 
 # RL-6b — the RS-1 lint set is declared here, not per crate. A crate cannot opt out.
 # EM-1 is only meaningful as an absolute (ADR-0001 RA-6).

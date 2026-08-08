@@ -11,7 +11,12 @@
 /// Returns [`tauri::Error`] if the Tauri runtime fails to initialise or the
 /// application exits abnormally.
 pub fn run() -> tauri::Result<()> {
+    // The command registry is owned by devdesk-ipc, not assembled here. A command
+    // registered outside that registry is invisible to versioning, to plugin
+    // compatibility checks, and to the generated contract (B-3).
+    let contract = devdesk_ipc::builder();
+
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![])
+        .invoke_handler(contract.invoke_handler())
         .run(tauri::generate_context!())
 }

@@ -62,6 +62,24 @@ jobs:
       - name: cfg-usage (DR-6)
         run: pnpm run check:cfg
 
+  contract:
+    name: Contract — generated output is current
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # GEN-2: regenerate and fail on diff. A drifted contract means the Rust
+      # signatures and the TypeScript the shell compiles against disagree.
+      - name: contract drift
+        run: pnpm run check:contract
+
   lockfiles:
     name: Supply chain — lockfile integrity
     runs-on: ubuntu-latest

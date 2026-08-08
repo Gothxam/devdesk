@@ -8,11 +8,14 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@devdesk/shared": "workspace:*"
+    "@devdesk/shared": "workspace:*",
+    "@tauri-apps/api": "^2.11.1"
   }
 }

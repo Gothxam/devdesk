@@ -10,3 +10,10 @@ publish = false
 workspace = true
 
 [dependencies]
+devdesk-core = { path = "../devdesk-core" }
+serde = { workspace = true }
+specta = { workspace = true }
+specta-typescript = { workspace = true }
+tauri = { workspace = true }
+tauri-specta = { workspace = true }
+thiserror = { workspace = true }

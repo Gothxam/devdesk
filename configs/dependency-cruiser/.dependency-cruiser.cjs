@@ -36,10 +36,15 @@ module.exports = {
       name: 'no-deep-imports',
       severity: 'error',
       comment:
-        'DR-5: only the published entry point of a package is importable. A deep import ' +
-        'means a refactor inside one package breaks three others (AP-4).',
-      from: {},
-      to: { path: '^packages/[^/]+/src/(?!index\.ts$)' },
+        'DR-5: only the published entry point of a package is importable from OUTSIDE ' +
+        'that package. A cross-package deep import means a refactor inside one package ' +
+        'breaks three others (AP-4). A package importing its own internals is how ' +
+        'index.ts assembles its public surface, and is not a violation.',
+      from: { path: '^packages/([^/]+)/' },
+      to: {
+        path: '^packages/([^/]+)/src/(?!index\.ts$)',
+        pathNot: '^packages/$1/',
+      },
     },
     {
       name: 'no-upward-layer-imports',

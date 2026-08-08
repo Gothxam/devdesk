@@ -1,8 +1,12 @@
 /**
  * `@devdesk/contracts` — public surface.
  *
- * This file is the only importable entry point (DR-5). Anything not exported
- * here is internal, and `dependency-cruiser` enforces it.
+ * The IPC contract is **generated from the Rust command signatures**, never
+ * hand-written on both sides (GEN-1, DD-003). A hand-maintained mirror drifts
+ * silently, and silent drift at a trust boundary is a security problem rather
+ * than a typing inconvenience (AP-13).
+ *
+ * Regenerate: `cargo run -p devdesk-app --bin export-contract`
  */
 
-export {};
+export * from './generated/contract';
