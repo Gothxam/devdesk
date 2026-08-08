@@ -120,6 +120,31 @@ fn the_generation_advances_even_when_returning_to_a_known_arrangement() {
 }
 
 #[test]
+fn a_fresh_publisher_starts_over_rather_than_resuming() {
+    // TP-14c. A new process observing the same desk as the last one reports
+    // generation 1 for it. Continuity across a restart is the fingerprint's job,
+    // and a persisted generation would still compare — a stored 7 against a
+    // fresh 3 orders happily, and a consumer reasoning about staleness across
+    // the restart would discard the arrangement it just enumerated.
+    let first_run = SharedTopology::new();
+    first_run.publish(docked());
+    first_run.publish(undocked());
+    first_run.publish(docked());
+    assert_eq!(first_run.generation().get(), 3);
+
+    let second_run = SharedTopology::new();
+    let observed = second_run.publish(docked()).expect("a first publication");
+
+    assert_eq!(observed.generation().get(), 1);
+    assert!(observed.is_initial());
+    assert_eq!(
+        observed.current().fingerprint(),
+        first_run.topology().fingerprint(),
+        "the desk is the same one; only the fingerprint says so across processes"
+    );
+}
+
+#[test]
 fn a_display_moving_is_not_a_display_arriving() {
     let shared = SharedTopology::new();
     shared.publish(docked());

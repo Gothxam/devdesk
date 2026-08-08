@@ -183,6 +183,27 @@ Undocking a laptop emits a burst of `WM_DISPLAYCHANGE` over several hundred mill
 
 **`TP-7`. `TopologyGeneration` is monotonic and separate from the fingerprint.** A fingerprint answers *which* arrangement this is, and two visits to the same desk produce the same one — that is what makes it a layout key under `WD-4`. A generation answers *how recent* this is, so a consumer holding stale work can tell that it is stale. Undock and redock returns to a fingerprint already seen; it does not return to a generation already seen. Generation `0` means nothing has been enumerated yet, which is a different fact from an empty arrangement at generation `1`.
 
+**`TP-14`. A generation is process-local and MUST NOT be persisted.** *(Added by Amendment 1.)*
+
+The two identifiers have different lifetimes, and conflating them breaks both:
+
+| | `TopologyFingerprint` | `TopologyGeneration` |
+| --- | --- | --- |
+| Answers | *Which* arrangement is this | *How recent* is this observation |
+| Scope | Across sessions and machines | One process, one run |
+| Repeats | Yes — returning to a known desk | Never — strictly increasing |
+| Persisted | **Yes.** It is the layout key (`WD-4`) | **No** |
+
+A persisted generation is meaningless on the next launch: it counts publications made by a process that no longer exists. Worse, it would be *comparable* — a stored `7` and a fresh `3` order against each other perfectly happily, and a consumer that reasoned about staleness across the restart would conclude that the arrangement it just enumerated is older than the one it saved, and discard it.
+
+Three consequences follow, and each is a rule:
+
+- **`TP-14a`.** A generation **MUST NOT** appear in any stored arrangement, layout record, or configuration file, and **MUST NOT** be used as a cache key that outlives the process.
+- **`TP-14b`.** A generation **MUST NOT** be compared across processes, including between a running instance and a stored value, and including between two DevDesk instances.
+- **`TP-14c`.** Every publisher starts at [`TopologyGeneration::INITIAL`]. A new process observing the same desk as the last one reports generation `1` for it, not the generation the previous process left off at. Continuity across a restart is the fingerprint's job, and it already does it.
+
+The general form: **fingerprints identify topology across sessions; generations identify publication order within a process.** Any identifier crossing the process boundary must survive a restart with its meaning intact, and a counter does not.
+
 **`TP-8`.** The diff **MUST** pair displays by identity, not by list position: first on the derived key, then on a **conclusive** (`MI-6`) identity match for whatever remains. The second pass is what stops §2.1's third defect. A merely `Probable` pairing **MUST NOT** be used; the safe reading of that is a removal and an addition.
 
 **`TP-9`.** The diff **MUST** distinguish work-area changes from moves and resizes. A taskbar moving to another edge changes what a surface can anchor to while the hardware does not move at all.
@@ -455,6 +476,7 @@ No other section changes. `WD-1`, `WD-2`, `WD-4`, `WD-5`, `WD-6`, and all of §9
 | **T-7** | A second topology publisher is proposed, for a second window or a test harness | `TP-3` |
 | **T-8** | Layout binding is implemented and needs a confidence other than `MI-6`'s | `MI-6`, `WD-5` |
 | **T-9** | `WD-6`'s 250 ms window proves wrong on real docking hardware | `TP-10`, `WD-6` |
+| **T-9a** | Anything asks to persist a generation, or to compare one across processes | `TP-14` — the requirement is real, the mechanism is wrong; it needs a fingerprint or a stored revision, not a counter |
 | **T-10** | A display-related type is proposed for the IPC contract | `SYSTEM_ARCHITECTURE.md` §7.3 versioning and §18.8 information disclosure — a serial number is hardware-identifying, and whether identity signals cross the trust boundary at all is a separate decision from whether topology does |
 | **T-11** | `docs/architecture/WINDOW_AND_DISPLAY.md` is written | This ADR becomes its input; §3 rules move there only if the document supersedes them explicitly |
 
@@ -472,6 +494,14 @@ No other section changes. `WD-1`, `WD-2`, `WD-4`, `WD-5`, `WD-6`, and all of §9
 | [`knowledge/performance/2026-08-08-display-topology.md`](../../knowledge/performance/2026-08-08-display-topology.md) | The measurements §7.1 rests on. Measurement data lives there, never here (`PROJECT_CONSTITUTION` §2) |
 | [`docs/product/PRD.md`](../product/PRD.md) | Owns `AC-MON-1.4`, `AC-MON-8.3`, `AC-DAT-1.1`, which `MI-5`, `MI-6`, and `MI-10` serve |
 | [`planning/SPRINT_1.md`](../../planning/SPRINT_1.md) | Day 3 sequences the implementation this ratifies |
+
+---
+
+## 12. Amendment History
+
+| # | Date | Change | Rules |
+| --- | --- | --- | --- |
+| 1 | 2026-08-08 | Generation lifetime made explicit before the window subsystem consumed it. `TP-7` established that generation and fingerprint answer different questions but did not state that they have different *lifetimes*, which left "persist the generation alongside the fingerprint" available to a reader who had understood everything else correctly. | `TP-14`, `TP-14a`…`TP-14c`, `T-9a`; `SYSTEM_ARCHITECTURE.md` `WD-12` |
 
 ---
 

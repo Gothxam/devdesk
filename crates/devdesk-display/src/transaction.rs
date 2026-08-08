@@ -40,6 +40,20 @@ use crate::topology::Topology;
 /// Generation 0 means nothing has been enumerated yet — not that no displays are
 /// attached, which is a different fact and reports as an empty topology at
 /// generation 1.
+///
+/// # Process-local; never persisted
+///
+/// `TP-14`: this counts publications made by **one running process**. A stored
+/// generation is meaningless on the next launch, and worse, it still *compares* —
+/// a saved `7` and a fresh `3` order against each other perfectly happily, so a
+/// consumer reasoning about staleness across a restart would conclude that the
+/// arrangement it just enumerated is older than the one it saved, and discard it.
+///
+/// **The absence of `Serialize` and `Deserialize` here is deliberate and
+/// load-bearing.** [`TopologyFingerprint`](crate::topology::TopologyFingerprint)
+/// derives them and is the layout key (`WD-4`); this type must not become
+/// storable by someone adding a derive to make a struct compile. Continuity
+/// across a restart is the fingerprint's job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TopologyGeneration(u64);
 

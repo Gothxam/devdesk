@@ -763,7 +763,7 @@ flowchart TB
 
 **WD-11.** The spatial index over an arrangement **MUST** be immutable, and every topology change **MUST** produce a new one. Spatial queries are asked in the middle of other work — a drag, a layout solve, a hit test — and an index that can change under a caller lets a sequence of queries answer against two different desktops.
 
-**WD-12.** Recency and arrangement identity are **separate values**. The fingerprint (WD-3) answers *which* arrangement this is and repeats when the user returns to a known desk, which is what makes it a layout key under WD-4. A monotonic **generation** answers *how recent* this is. A consumer holding stale work cannot detect it from a fingerprint alone.
+**WD-12.** Recency and arrangement identity are **separate values with different lifetimes**. The fingerprint (WD-3) answers *which* arrangement this is, repeats when the user returns to a known desk, and is **persisted** — that is what makes it a layout key under WD-4. A monotonic **generation** answers *how recent* this observation is, is **process-local, and MUST NOT be persisted**: it counts publications made by one running process, so a stored one is meaningless on the next launch and, worse, still compares. Fingerprints identify topology across sessions; generations identify publication order within a process.
 
 ---
 
