@@ -92,6 +92,8 @@ importers:
         specifier: workspace:*
         version: link:../ui
 
+  tests: {}
+
 packages:
 
   typescript@5.9.3:
