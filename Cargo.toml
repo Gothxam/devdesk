@@ -1,0 +1,34 @@
+[workspace]
+resolver = "2"
+
+# Members are added in commit 3 (`chore: scaffold seven rust crates`). Cargo treats a
+# member glob that matches nothing as a hard error, so the globs cannot be declared
+# before `crates/` exists. See planning/SPRINT_1.md deviation D-1.
+members = []
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+rust-version = "1.97"
+license = "SEE LICENSE IN LICENSE"
+repository = "https://github.com/devdesk/devdesk"
+publish = false
+
+# RL-6a — every third-party version is declared once, here. A member crate declaring
+# its own version of a shared dependency is prohibited: divergent versions of serde or
+# tokio across crates produce link-time duplication that presents as trait mismatches.
+[workspace.dependencies]
+
+# RL-6b — the RS-1 lint set is declared here, not per crate. A crate cannot opt out.
+# EM-1 is only meaningful as an absolute (ADR-0001 RA-6).
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+await_holding_lock = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
