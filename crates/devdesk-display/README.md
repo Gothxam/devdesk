@@ -6,6 +6,24 @@
 
 Monitor enumeration, the three coordinate spaces and conversions between them, DPI resolution, hotplug debouncing, topology identity and fingerprinting.
 
+## Pipeline
+
+```text
+PlatformBackend  →  Topology  →  DisplayGraph  →  consumers
+  raw records       identity      spatial index
+                    + geometry    (immutable)
+```
+
+One direction, one responsibility per stage. The backend says what the system
+reported; `enumerate` resolves identity and tags geometry with its space; a
+`DisplayGraph` is an immutable spatial index over one topology snapshot. Nothing
+flows back up, and no consumer reaches past the graph to the backend.
+
+Identity is **confidence-based**, not string equality. No single reported signal
+is both always present and always stable, so a match carries an
+`IdentityConfidence` and an ambiguous match resolves to nothing rather than to a
+guess.
+
 ## Does not own
 
 Window placement policy — that is layout, owned by `devdesk-core`.

@@ -1,46 +1,24 @@
-//! Monitor identity.
-//!
-//! WD-3: monitors are identified by a **stable fingerprint derived from display
-//! identity**, never by OS enumeration index. Indices reorder across reboots and
-//! docking events, and every layout bound to one silently relocates — which is
-//! `PS-3`, the origin failure this project exists to fix.
+//! One attached display, as the rest of the system sees it.
 
 use serde::{Deserialize, Serialize};
 
-use crate::geometry::{PhysicalRect, ScaleFactor};
+use devdesk_platform::{RawMonitorInfo, RawRect};
 
-/// A stable identifier for one physical display.
-///
-/// Derived from what the display reports about itself, not from where it
-/// happened to appear in an enumeration.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct MonitorId(String);
+use crate::error::DisplayError;
+use crate::geometry::{PhysicalPoint, PhysicalRect, PhysicalSize, ScaleFactor};
+use crate::identity::{IdentityConfidence, MonitorId, MonitorIdentity};
 
-impl MonitorId {
-    /// Builds an id from display-reported identity.
-    ///
-    /// Two physically identical models attached at once must not collide, so the
-    /// device path participates: it distinguishes the ports they are plugged
-    /// into when the manufacturer strings are identical.
-    #[must_use]
-    pub fn from_identity(device_path: &str, manufacturer: &str, model: &str, serial: &str) -> Self {
-        Self(format!("{device_path}|{manufacturer}|{model}|{serial}"))
-    }
-
-    /// The opaque identifier.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+/// The DPI Windows and every other platform report for a display at 100%.
+const DPI_AT_100_PERCENT: f64 = 96.0;
 
 /// Everything known about one attached display.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MonitorDescriptor {
-    /// Stable identity (WD-3).
-    pub id: MonitorId,
+    /// What the display reported about which display it is (WD-3).
+    pub identity: MonitorIdentity,
     /// Human-readable name, for a UI the user can match to hardware
-    /// (`AC-MON-8.3`). Never used for identity: it is not unique.
+    /// (`AC-MON-8.3`). Never used for identity: it is neither unique nor stable,
+    /// and a user who renames a display must not lose the layout bound to it.
     pub name: String,
     /// Full bounds in device pixels, including any area covered by OS chrome.
     pub bounds: PhysicalRect,
@@ -61,6 +39,77 @@ pub struct MonitorDescriptor {
 }
 
 impl MonitorDescriptor {
+    /// Builds a descriptor from a platform record.
+    ///
+    /// # Errors
+    ///
+    /// [`DisplayError::UnusableDisplay`] when the record describes geometry no
+    /// surface could be placed on — a zero-area display or a scale factor that
+    /// would make every conversion produce absent coordinates. Rejecting here is
+    /// the point: a `NaN` scale carried forward surfaces as a window at an
+    /// impossible position, many layers from its cause.
+    pub fn from_raw(raw: &RawMonitorInfo) -> Result<Self, DisplayError> {
+        let device = raw
+            .os_device_name
+            .clone()
+            .or_else(|| raw.device_path.clone())
+            .unwrap_or_else(|| format!("#{}", raw.os_enumeration_index));
+
+        if raw.bounds.width == 0 || raw.bounds.height == 0 {
+            return Err(DisplayError::UnusableDisplay {
+                device,
+                field: "bounds",
+                detail: format!("{}x{}", raw.bounds.width, raw.bounds.height),
+            });
+        }
+
+        let scale_factor =
+            ScaleFactor::new(f64::from(raw.dpi) / DPI_AT_100_PERCENT).ok_or_else(|| {
+                DisplayError::UnusableDisplay {
+                    device: device.clone(),
+                    field: "scale factor",
+                    detail: format!("{} dpi", raw.dpi),
+                }
+            })?;
+
+        // A work area larger than the display, or absent entirely, means the
+        // platform could not compute it. Falling back to full bounds costs a
+        // surface being placed under the taskbar; treating the display as
+        // unusable costs the user a monitor.
+        let work_area = to_rect(raw.work_area);
+        let work_area = if work_area.size.width == 0 || work_area.size.height == 0 {
+            to_rect(raw.bounds)
+        } else {
+            work_area
+        };
+
+        Ok(Self {
+            identity: MonitorIdentity::from_raw(raw),
+            name: raw
+                .friendly_name
+                .clone()
+                .or_else(|| raw.os_device_name.clone())
+                .unwrap_or_else(|| "Display".to_owned()),
+            bounds: to_rect(raw.bounds),
+            work_area,
+            scale_factor,
+            refresh_millihertz: raw.refresh_millihertz,
+            is_primary: raw.is_primary,
+        })
+    }
+
+    /// The derived identity key.
+    #[must_use]
+    pub const fn id(&self) -> &MonitorId {
+        self.identity.id()
+    }
+
+    /// The best confidence with which this display could ever be re-identified.
+    #[must_use]
+    pub fn identity_strength(&self) -> IdentityConfidence {
+        self.identity.strength()
+    }
+
     /// Refresh rate in whole hertz, when reported.
     #[must_use]
     pub fn refresh_hz(&self) -> Option<f64> {
@@ -78,5 +127,15 @@ impl MonitorDescriptor {
             Some(hz) if hz > 0.0 => 1000.0 / hz,
             _ => 1000.0 / 60.0,
         }
+    }
+}
+
+fn to_rect(raw: RawRect) -> PhysicalRect {
+    PhysicalRect {
+        origin: PhysicalPoint { x: raw.x, y: raw.y },
+        size: PhysicalSize {
+            width: raw.width,
+            height: raw.height,
+        },
     }
 }

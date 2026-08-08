@@ -10,4 +10,6 @@ publish = false
 workspace = true
 
 [dependencies]
+devdesk-platform = { path = "../devdesk-platform" }
 serde = { workspace = true }
+thiserror = { workspace = true }

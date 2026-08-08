@@ -618,7 +618,9 @@ version = "0.1.0"
 name = "devdesk-display"
 version = "0.1.0"
 dependencies = [
+ "devdesk-platform",
  "serde",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

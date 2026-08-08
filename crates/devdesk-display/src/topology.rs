@@ -5,12 +5,11 @@
 //! configured for it — the laptop-plus-dock case, which is the common one and
 //! not an edge case.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 use serde::{Deserialize, Serialize};
 
-use crate::monitor::{MonitorDescriptor, MonitorId};
+use crate::hash::StableHasher;
+use crate::identity::MonitorId;
+use crate::monitor::MonitorDescriptor;
 
 /// A stable identifier for one complete monitor arrangement.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -38,8 +37,23 @@ impl Topology {
     /// for one physical arrangement.
     #[must_use]
     pub fn new(mut monitors: Vec<MonitorDescriptor>) -> Self {
-        monitors.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
+        monitors.sort_by(|a, b| a.id().as_str().cmp(b.id().as_str()));
         Self { monitors }
+    }
+
+    /// How many displays are attached.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.monitors.len()
+    }
+
+    /// Whether no displays are attached.
+    ///
+    /// A real state, not an error: a laptop with the lid closed and no external
+    /// display attached reports exactly this.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.monitors.is_empty()
     }
 
     /// The attached monitors, in stable identity order.
@@ -57,7 +71,7 @@ impl Topology {
     /// Finds a monitor by identity.
     #[must_use]
     pub fn find(&self, id: &MonitorId) -> Option<&MonitorDescriptor> {
-        self.monitors.iter().find(|m| &m.id == id)
+        self.monitors.iter().find(|m| m.id() == id)
     }
 
     /// Whether the attached displays disagree about scale factor.
@@ -79,20 +93,24 @@ impl Topology {
     /// enumeration order, display name, or refresh rate. Refresh is excluded on
     /// purpose: changing a refresh rate must not create a new arrangement and
     /// silently orphan the layout the user built (`AC-MON-1.4`).
+    ///
+    /// Hashed with [`StableHasher`] rather than `DefaultHasher`, because this
+    /// value is persisted: an algorithm that may change between Rust releases
+    /// would re-fingerprint every saved arrangement on a toolchain bump.
     #[must_use]
     pub fn fingerprint(&self) -> TopologyFingerprint {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = StableHasher::new();
 
         for monitor in &self.monitors {
-            monitor.id.as_str().hash(&mut hasher);
-            monitor.bounds.origin.x.hash(&mut hasher);
-            monitor.bounds.origin.y.hash(&mut hasher);
-            monitor.bounds.size.width.hash(&mut hasher);
-            monitor.bounds.size.height.hash(&mut hasher);
-            monitor.scale_factor.get().to_bits().hash(&mut hasher);
-            monitor.is_primary.hash(&mut hasher);
+            hasher.write_field(monitor.id().as_str());
+            hasher.write_i32(monitor.bounds.origin.x);
+            hasher.write_i32(monitor.bounds.origin.y);
+            hasher.write_u32(monitor.bounds.size.width);
+            hasher.write_u32(monitor.bounds.size.height);
+            hasher.write_f64(monitor.scale_factor.get());
+            hasher.write_bool(monitor.is_primary);
         }
 
-        TopologyFingerprint(format!("{:016x}", hasher.finish()))
+        TopologyFingerprint(hasher.finish_hex())
     }
 }
