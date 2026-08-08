@@ -17,7 +17,7 @@ function theme(dark: TokenSet): ThemeSource {
 describe('resolveTheme', () => {
   it('resolves a literal base token', () => {
     const result = resolveTheme(
-      theme({ base: { 'color.slate.900': literal('#0f1115') }, semantic: {}, component: {} }),
+      theme({ base: { 'color.slate.900': literal('color', '#0f1115') }, semantic: {}, component: {} }),
       CONTEXT,
     );
 
@@ -29,9 +29,9 @@ describe('resolveTheme', () => {
   it('resolves a reference chain component -> semantic -> base', () => {
     const result = resolveTheme(
       theme({
-        base: { 'color.slate.900': literal('#0f1115') },
-        semantic: { 'surface.background': reference('color.slate.900') },
-        component: { 'panel.background': reference('surface.background') },
+        base: { 'color.slate.900': literal('color', '#0f1115') },
+        semantic: { 'surface.background': reference('color', 'color.slate.900') },
+        component: { 'panel.background': reference('color', 'surface.background') },
       }),
       CONTEXT,
     );
@@ -46,7 +46,7 @@ describe('resolveTheme', () => {
     const result = resolveTheme(
       theme({
         base: {},
-        semantic: { 'surface.background': reference('color.missing', '#000000') },
+        semantic: { 'surface.background': reference('color', 'color.missing', '#000000') },
         component: {},
       }),
       CONTEXT,
@@ -60,7 +60,7 @@ describe('resolveTheme', () => {
 
   it('fails at load, not at paint, when a reference has no target and no fallback', () => {
     const result = resolveTheme(
-      theme({ base: {}, semantic: { 'surface.background': reference('color.missing') }, component: {} }),
+      theme({ base: {}, semantic: { 'surface.background': reference('color', 'color.missing') }, component: {} }),
       CONTEXT,
     );
 
@@ -83,9 +83,9 @@ describe('resolveTheme', () => {
         base: {},
         semantic: {},
         component: {
-          'a.value': reference('b.value'),
-          'b.value': reference('c.value'),
-          'c.value': reference('a.value'),
+          'a.value': reference('color', 'b.value'),
+          'b.value': reference('color', 'c.value'),
+          'c.value': reference('color', 'a.value'),
         },
       }),
       CONTEXT,
@@ -99,7 +99,7 @@ describe('resolveTheme', () => {
 
   it('rejects a self-reference before it can loop', () => {
     const result = resolveTheme(
-      theme({ base: {}, semantic: { 'x.self': reference('x.self') }, component: {} }),
+      theme({ base: {}, semantic: { 'x.self': reference('color', 'x.self') }, component: {} }),
       CONTEXT,
     );
 
@@ -111,9 +111,9 @@ describe('resolveTheme', () => {
   it('rejects an upward reference from semantic to component', () => {
     const result = resolveTheme(
       theme({
-        base: { 'color.a': literal('#fff') },
-        semantic: { 'surface.bg': reference('panel.bg') },
-        component: { 'panel.bg': reference('color.a') },
+        base: { 'color.a': literal('color', '#fff') },
+        semantic: { 'surface.bg': reference('color', 'panel.bg') },
+        component: { 'panel.bg': reference('color', 'color.a') },
       }),
       CONTEXT,
     );
@@ -126,8 +126,8 @@ describe('resolveTheme', () => {
   it('rejects layer inversion: a base token may not reference upward', () => {
     const result = resolveTheme(
       theme({
-        base: { 'color.primary': reference('surface.background') },
-        semantic: { 'surface.background': literal('#0f1115') },
+        base: { 'color.primary': reference('color', 'surface.background') },
+        semantic: { 'surface.background': literal('color', '#0f1115') },
         component: {},
       }),
       CONTEXT,
@@ -141,8 +141,8 @@ describe('resolveTheme', () => {
   it('rejects a sideways reference within the same layer', () => {
     const result = resolveTheme(
       theme({
-        base: { 'color.a': literal('#fff') },
-        semantic: { 'x.one': reference('x.two'), 'x.two': reference('color.a') },
+        base: { 'color.a': literal('color', '#fff') },
+        semantic: { 'x.one': reference('color', 'x.two'), 'x.two': reference('color', 'color.a') },
         component: {},
       }),
       CONTEXT,
@@ -156,8 +156,8 @@ describe('resolveTheme', () => {
   it('applies accessibility overrides last, so no theme can shadow them', () => {
     const result = resolveTheme(
       theme({
-        base: { 'motion.fast': literal('160ms') },
-        semantic: { 'motion.panel': reference('motion.fast') },
+        base: { 'motion.fast': literal('motion-duration', '160ms') },
+        semantic: { 'motion.panel': reference('motion-duration', 'motion.fast') },
         component: {},
       }),
       CONTEXT,
@@ -173,7 +173,7 @@ describe('resolveTheme', () => {
 
   it('produces a frozen snapshot so consumers cannot mutate shared theme state', () => {
     const result = resolveTheme(
-      theme({ base: { 'color.a': literal('#fff') }, semantic: {}, component: {} }),
+      theme({ base: { 'color.a': literal('color', '#fff') }, semantic: {}, component: {} }),
       CONTEXT,
     );
 
@@ -183,7 +183,7 @@ describe('resolveTheme', () => {
   });
 
   it('produces distinct snapshots, so an earlier holder is unaffected by a later resolution', () => {
-    const source = theme({ base: { 'color.a': literal('#fff') }, semantic: {}, component: {} });
+    const source = theme({ base: { 'color.a': literal('color', '#fff') }, semantic: {}, component: {} });
     const first = resolveTheme(source, CONTEXT);
     const second = resolveTheme(source, CONTEXT);
 

@@ -21,10 +21,12 @@ import {
   LAYERS,
   type ThemeMode,
   type ThemeSource,
+  type TokenDefinition,
   type TokenId,
+  type TokenKind,
   type TokenLayer,
-  type TokenValue,
   layerRank,
+  isTokenKind,
   tokenId,
 } from './token';
 
@@ -63,6 +65,14 @@ export type ResolutionError =
       readonly toLayer: TokenLayer;
     }
   | { readonly kind: 'base-token-is-reference'; readonly token: TokenId }
+  | { readonly kind: 'unknown-token-kind'; readonly token: TokenId; readonly declared: string }
+  | {
+      readonly kind: 'kind-mismatch';
+      readonly from: TokenId;
+      readonly fromKind: TokenKind;
+      readonly to: TokenId;
+      readonly toKind: TokenKind;
+    }
   | { readonly kind: 'unknown-mode'; readonly mode: string };
 
 /** Renders a {@link ResolutionError} as an author-actionable message (EM-6). */
@@ -76,13 +86,17 @@ export function describeResolutionError(error: ResolutionError): string {
       return `Token "${error.from}" (${error.fromLayer}) references "${error.to}" (${error.toLayer}). References go component → semantic → base only.`;
     case 'base-token-is-reference':
       return `Base token "${error.token}" is a reference. Base tokens are primitives and must be literals.`;
+    case 'unknown-token-kind':
+      return `Token "${error.token}" declares kind "${error.declared}", which is not a known kind. This is usually a typo — a token with an unknown kind is never accessibility-overridden.`;
+    case 'kind-mismatch':
+      return `Token "${error.from}" is a ${error.fromKind} but references "${error.to}", which is a ${error.toKind}. A reference must preserve kind.`;
     case 'unknown-mode':
       return `This theme does not define the "${error.mode}" mode.`;
   }
 }
 
 interface Entry {
-  readonly value: TokenValue;
+  readonly definition: TokenDefinition;
   readonly layer: TokenLayer;
 }
 
@@ -92,9 +106,9 @@ function flatten(source: ThemeSource, mode: ThemeMode): Map<TokenId, Entry> | un
 
   const flat = new Map<TokenId, Entry>();
   for (const layer of LAYERS) {
-    for (const [name, value] of Object.entries(set[layer])) {
+    for (const [name, definition] of Object.entries(set[layer])) {
       // Later layers shadow earlier ones by design: that is the cascade.
-      flat.set(tokenId(name), { value, layer });
+      flat.set(tokenId(name), { definition, layer });
     }
   }
   return flat;
@@ -137,25 +151,38 @@ export function resolveTheme(
       return err({ kind: 'unknown-reference', from: id, to: id });
     }
 
-    if (entry.value.kind === 'literal') {
-      resolved.set(id, entry.value.value);
+    // A misdeclared kind is caught here rather than silently excluding the token
+    // from accessibility overrides — which is the failure mode that made naming
+    // conventions unsafe for this job.
+    if (!isTokenKind(entry.definition.kind)) {
+      return err({
+        kind: 'unknown-token-kind',
+        token: id,
+        declared: String(entry.definition.kind),
+      });
+    }
+
+    const form = entry.definition.value;
+
+    if (form.form === 'literal') {
+      resolved.set(id, form.value);
       origins.set(id, 'theme');
-      return ok(entry.value.value);
+      return ok(form.value);
     }
 
     if (entry.layer === 'base') {
       return err({ kind: 'base-token-is-reference', token: id });
     }
 
-    const target = entry.value.to;
+    const target = form.to;
     const targetEntry = flat?.get(target);
 
     if (targetEntry === undefined) {
       // TH-3 totality: a declared fallback keeps resolution total.
-      if (entry.value.fallback !== undefined) {
-        resolved.set(id, entry.value.fallback);
+      if (form.fallback !== undefined) {
+        resolved.set(id, form.fallback);
         origins.set(id, 'fallback');
-        return ok(entry.value.fallback);
+        return ok(form.fallback);
       }
       return err({ kind: 'unknown-reference', from: id, to: target });
     }
@@ -167,6 +194,19 @@ export function resolveTheme(
         fromLayer: entry.layer,
         to: target,
         toLayer: targetEntry.layer,
+      });
+    }
+
+    // A reference must preserve kind. Only possible because the schema declares
+    // it: a naming convention cannot tell a colour from a duration, so this class
+    // of error was undetectable before.
+    if (targetEntry.definition.kind !== entry.definition.kind) {
+      return err({
+        kind: 'kind-mismatch',
+        from: id,
+        fromKind: entry.definition.kind,
+        to: target,
+        toKind: targetEntry.definition.kind,
       });
     }
 

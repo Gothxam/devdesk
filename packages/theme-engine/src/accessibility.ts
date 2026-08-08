@@ -9,111 +9,105 @@
  * visual opinion. The engine still carries no opinion about *what a theme should
  * look like* (D-8); it carries the rule that the operating system wins.
  *
- * ## The one piece of token semantics the engine knows
+ * ## Overrides act on declared kind, never on naming
  *
- * Overrides are applied by namespace, which makes a naming convention part of the
- * theme contract:
- *
- * | Namespace | Meaning | Overridden when |
- * | --- | --- | --- |
- * | `motion.*` | A duration | reduced motion |
- * | `effect.blur.*` | A blur radius | reduced transparency |
- * | `effect.opacity.*` | A surface opacity | reduced transparency |
- * | `effect.tint.*` | A translucent fill | reduced transparency |
- *
- * This is the engine's *only* knowledge of what a token means. A theme that
- * places a duration outside `motion.*` will not have it neutralised, which is why
- * the convention is part of the contract rather than a suggestion.
+ * The engine reads {@link TokenDefinition.kind}, which the schema declares. It
+ * never infers meaning from a token's name. A theme that misspells a token id
+ * still gets its motion neutralised, because the kind is what carries the
+ * semantics; a theme that misspells a *kind* fails validation and is told which
+ * token is wrong.
  */
 
-import type { ThemeSnapshot } from './snapshot';
-import { type TokenId, tokenId } from './token';
 import type { AccessibilityPreferences } from './resolve';
+import type { ThemeSnapshot } from './snapshot';
+import type { TokenDefinition, TokenId, TokenKind, TokenSet } from './token';
+import { tokenId } from './token';
 
-/** Values forced by an active preference. */
-const FORCED_DURATION = '0ms';
-const FORCED_BLUR = '0px';
-const FORCED_OPACITY = '1';
-
-function hasNamespace(id: string, namespace: string): boolean {
-  return id === namespace || id.startsWith(`${namespace}.`);
+/** What an active preference forces a kind to, and how that reads to a user. */
+interface OverrideRule {
+  readonly forced: string;
+  readonly label: string;
+  readonly applies: (preferences: AccessibilityPreferences) => boolean;
 }
+
+/**
+ * The complete override table.
+ *
+ * Keyed by kind, so adding a kind that needs neutralising is a change here and
+ * nowhere else. A kind absent from this table is never overridden.
+ */
+const RULES: Partial<Record<TokenKind, OverrideRule>> = {
+  'motion-duration': {
+    forced: '0ms',
+    label: 'Reduced motion',
+    applies: (p) => p.reducedMotion,
+  },
+  'blur-radius': {
+    forced: '0px',
+    label: 'Reduced transparency',
+    applies: (p) => p.reducedTransparency,
+  },
+  opacity: {
+    forced: '1',
+    label: 'Reduced transparency',
+    applies: (p) => p.reducedTransparency,
+  },
+};
 
 /**
  * Computes the overrides for a set of preferences.
  *
- * Takes the token *ids* rather than a snapshot so it can run before resolution
- * completes — the overrides are applied inside {@link resolveTheme}, after every
+ * Takes declared tokens rather than a snapshot so it can run before resolution
+ * completes — the overrides are applied inside `resolveTheme` after every
  * reference is resolved, which is what makes them un-shadowable.
  */
 export function accessibilityOverrides(
-  tokenIds: Iterable<string>,
+  declared: ReadonlyMap<TokenId, TokenDefinition>,
   preferences: AccessibilityPreferences,
 ): ReadonlyMap<TokenId, string> {
   const overrides = new Map<TokenId, string>();
 
-  for (const id of tokenIds) {
-    if (preferences.reducedMotion && hasNamespace(id, 'motion')) {
-      overrides.set(tokenId(id), FORCED_DURATION);
-      continue;
-    }
-
-    if (preferences.reducedTransparency) {
-      if (hasNamespace(id, 'effect.blur')) {
-        overrides.set(tokenId(id), FORCED_BLUR);
-        continue;
-      }
-      if (hasNamespace(id, 'effect.opacity')) {
-        overrides.set(tokenId(id), FORCED_OPACITY);
-        continue;
-      }
+  for (const [id, definition] of declared) {
+    const rule = RULES[definition.kind];
+    if (rule !== undefined && rule.applies(preferences)) {
+      overrides.set(id, rule.forced);
     }
   }
 
   return overrides;
 }
 
-/**
- * Every token id a theme declares, across all three layers of one mode.
- *
- * Used to compute overrides without resolving first.
- */
-export function declaredTokenIds(set: {
-  base: Readonly<Record<string, unknown>>;
-  semantic: Readonly<Record<string, unknown>>;
-  component: Readonly<Record<string, unknown>>;
-}): readonly string[] {
-  return [...Object.keys(set.base), ...Object.keys(set.semantic), ...Object.keys(set.component)];
-}
-
-/**
- * Whether any preference is active.
- *
- * Surfaced so the shell can tell the user which values the operating system is
- * controlling, rather than leaving them wondering why a theme looks different
- * (`AC-THM-6.2`).
- */
-export function hasActiveOverrides(preferences: AccessibilityPreferences): boolean {
-  return (
-    preferences.reducedMotion || preferences.reducedTransparency || preferences.highContrast
-  );
-}
-
-/**
- * Lists which preferences overrode values in a resolved snapshot.
- *
- * Reads the snapshot's own record rather than recomputing, so what the user is
- * told matches what was actually applied.
- */
-export function describeActiveOverrides(snapshot: ThemeSnapshot): readonly string[] {
-  if (snapshot.accessibilityOverrides.size === 0) return [];
-
-  const namespaces = new Set<string>();
-  for (const id of snapshot.accessibilityOverrides) {
-    if (hasNamespace(id, 'motion')) namespaces.add('Reduced motion');
-    if (hasNamespace(id, 'effect.blur') || hasNamespace(id, 'effect.opacity')) {
-      namespaces.add('Reduced transparency');
+/** Every declared token of one mode, flattened across the three layers. */
+export function declaredTokens(set: TokenSet): ReadonlyMap<TokenId, TokenDefinition> {
+  const flat = new Map<TokenId, TokenDefinition>();
+  for (const layer of [set.base, set.semantic, set.component]) {
+    for (const [name, definition] of Object.entries(layer)) {
+      flat.set(tokenId(name), definition);
     }
   }
-  return [...namespaces];
+  return flat;
+}
+
+/** Whether any preference is active. */
+export function hasActiveOverrides(preferences: AccessibilityPreferences): boolean {
+  return preferences.reducedMotion || preferences.reducedTransparency || preferences.highContrast;
+}
+
+/**
+ * Names the preferences that overrode values in a resolved snapshot.
+ *
+ * Reads the snapshot's own record rather than recomputing, so what the user is
+ * told matches what was actually applied (`AC-THM-6.2`).
+ */
+export function describeActiveOverrides(
+  snapshot: ThemeSnapshot,
+  declared: ReadonlyMap<TokenId, TokenDefinition>,
+): readonly string[] {
+  const labels = new Set<string>();
+  for (const id of snapshot.accessibilityOverrides) {
+    const kind = declared.get(id)?.kind;
+    const rule = kind === undefined ? undefined : RULES[kind];
+    if (rule !== undefined) labels.add(rule.label);
+  }
+  return [...labels];
 }

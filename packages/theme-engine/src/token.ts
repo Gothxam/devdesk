@@ -18,12 +18,41 @@ export function tokenId(value: string): TokenId {
 }
 
 /**
+ * What a token *is*, declared by the schema rather than inferred from its name.
+ *
+ * The engine acts on kinds, never on naming. Inferring semantics from a string
+ * prefix is brittle in the one place brittleness is least acceptable: a theme
+ * author who writes `moiton.duration.fast` would get a token that resolves
+ * perfectly and silently keeps animating under reduced motion. A misspelled
+ * *kind* fails validation at load and names the offending token (TH-3, P-9).
+ *
+ * The set is closed. Adding a kind is a schema change, which is the point.
+ */
+export const TOKEN_KINDS = [
+  'color',
+  'dimension',
+  'motion-duration',
+  'motion-easing',
+  'blur-radius',
+  'opacity',
+  'shadow',
+  'typography',
+] as const;
+
+export type TokenKind = (typeof TOKEN_KINDS)[number];
+
+/** Whether a string names a known {@link TokenKind}. */
+export function isTokenKind(value: string): value is TokenKind {
+  return (TOKEN_KINDS as readonly string[]).includes(value);
+}
+
+/**
  * The inheritance layers, in resolution order.
  *
  * A token may reference **downward only** — component → semantic → base. A base
  * token must be a literal. This direction is enforced during resolution rather
  * than trusted: an inverted reference makes the cascade order meaningless, and
- * the failure appears later as a value that changes depending on iteration order.
+ * the failure appears later as a value that changes with iteration order.
  */
 export const LAYERS = ['base', 'semantic', 'component'] as const;
 
@@ -35,30 +64,46 @@ export function layerRank(layer: TokenLayer): number {
 }
 
 /**
- * An authored token value.
+ * How a token's value is expressed.
  *
  * A reference may declare a `fallback`. TH-3 requires resolution to be **total**:
  * every reference resolves to a concrete value or to a declared fallback, and an
  * unresolvable token fails validation at load rather than at paint.
  */
-export type TokenValue =
-  | { readonly kind: 'literal'; readonly value: string }
-  | { readonly kind: 'reference'; readonly to: TokenId; readonly fallback?: string };
+export type TokenValueForm =
+  | { readonly form: 'literal'; readonly value: string }
+  | { readonly form: 'reference'; readonly to: TokenId; readonly fallback?: string };
 
-/** A literal token value. */
-export function literal(value: string): TokenValue {
-  return { kind: 'literal', value };
+/** An authored token: what it is, and how its value is expressed. */
+export interface TokenDefinition {
+  readonly kind: TokenKind;
+  readonly value: TokenValueForm;
 }
 
-/** A reference to another token, with an optional total-resolution fallback. */
-export function reference(to: string, fallback?: string): TokenValue {
-  return fallback === undefined
-    ? { kind: 'reference', to: tokenId(to) }
-    : { kind: 'reference', to: tokenId(to), fallback };
+/** A literal token of a declared kind. */
+export function literal(kind: TokenKind, value: string): TokenDefinition {
+  return { kind, value: { form: 'literal', value } };
+}
+
+/**
+ * A reference to another token, with an optional total-resolution fallback.
+ *
+ * The declared kind must match the target's kind; resolution rejects a mismatch.
+ * That check is only possible because the schema declares kinds — a naming
+ * convention cannot tell a colour from a duration.
+ */
+export function reference(kind: TokenKind, to: string, fallback?: string): TokenDefinition {
+  return {
+    kind,
+    value:
+      fallback === undefined
+        ? { form: 'reference', to: tokenId(to) }
+        : { form: 'reference', to: tokenId(to), fallback },
+  };
 }
 
 /** The authored tokens of one layer. */
-export type TokenLayerSource = Readonly<Record<string, TokenValue>>;
+export type TokenLayerSource = Readonly<Record<string, TokenDefinition>>;
 
 /** The authored tokens of one mode, across all three layers. */
 export interface TokenSet {

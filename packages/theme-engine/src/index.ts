@@ -18,8 +18,12 @@ export {
   type TokenId,
   type TokenLayer,
   type TokenSet,
-  type TokenValue,
+  type TokenDefinition,
+  type TokenKind,
+  type TokenValueForm,
   LAYERS,
+  TOKEN_KINDS,
+  isTokenKind,
   layerRank,
   literal,
   reference,
@@ -52,7 +56,7 @@ export {
 
 export {
   accessibilityOverrides,
-  declaredTokenIds,
+  declaredTokens,
   describeActiveOverrides,
   hasActiveOverrides,
 } from './accessibility';

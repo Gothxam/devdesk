@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { accessibilityOverrides, declaredTokenIds, describeActiveOverrides } from './accessibility';
+import { accessibilityOverrides, declaredTokens, describeActiveOverrides } from './accessibility';
 import { customPropertyName, diffCustomProperties, findUnemittableTokens, toCustomProperties } from './emit';
 import { NO_ACCESSIBILITY_PREFERENCES, resolveTheme } from './resolve';
 import type { ResolutionContext } from './resolve';
@@ -15,13 +15,13 @@ function theme(dark: TokenSet): ThemeSource {
 
 const SAMPLE: TokenSet = {
   base: {
-    'color.slate.900': literal('#0f1115'),
-    'motion.duration.fast': literal('160ms'),
-    'effect.blur.panel': literal('24px'),
-    'effect.opacity.glass': literal('0.72'),
+    'color.slate.900': literal('color', '#0f1115'),
+    'motion.duration.fast': literal('motion-duration', '160ms'),
+    'effect.blur.panel': literal('blur-radius', '24px'),
+    'effect.opacity.glass': literal('opacity', '0.72'),
   },
-  semantic: { 'surface.background': reference('color.slate.900') },
-  component: { 'panel.background': reference('surface.background') },
+  semantic: { 'surface.background': reference('color', 'color.slate.900') },
+  component: { 'panel.background': reference('color', 'surface.background') },
 };
 
 describe('customPropertyName', () => {
@@ -50,7 +50,7 @@ describe('toCustomProperties', () => {
 
   it('omits unemittable ids rather than emitting a malformed property', () => {
     const result = resolveTheme(
-      theme({ base: { 'Bad Token!': literal('#fff'), 'color.a': literal('#000') }, semantic: {}, component: {} }),
+      theme({ base: { 'Bad Token!': literal('color', '#fff'), 'color.a': literal('color', '#000') }, semantic: {}, component: {} }),
       CONTEXT,
     );
     if (!result.ok) return;
@@ -71,7 +71,7 @@ describe('diffCustomProperties', () => {
   it('returns only what changed between two snapshots', () => {
     const before = resolveTheme(theme(SAMPLE), CONTEXT);
     const after = resolveTheme(
-      theme({ ...SAMPLE, base: { ...SAMPLE.base, 'color.slate.900': literal('#ffffff') } }),
+      theme({ ...SAMPLE, base: { ...SAMPLE.base, 'color.slate.900': literal('color', '#ffffff') } }),
       CONTEXT,
     );
     if (!before.ok || !after.ok) return;
@@ -85,7 +85,7 @@ describe('diffCustomProperties', () => {
   it('marks a removed property as null so a stale value is not left behind', () => {
     const before = resolveTheme(theme(SAMPLE), CONTEXT);
     const after = resolveTheme(
-      theme({ base: { 'color.slate.900': literal('#0f1115') }, semantic: {}, component: {} }),
+      theme({ base: { 'color.slate.900': literal('color', '#0f1115') }, semantic: {}, component: {} }),
       CONTEXT,
     );
     if (!before.ok || !after.ok) return;
@@ -103,7 +103,7 @@ describe('diffCustomProperties', () => {
 
 describe('accessibility overrides', () => {
   it('neutralises motion when reduced motion is set', () => {
-    const overrides = accessibilityOverrides(declaredTokenIds(SAMPLE), {
+    const overrides = accessibilityOverrides(declaredTokens(SAMPLE), {
       ...NO_ACCESSIBILITY_PREFERENCES,
       reducedMotion: true,
     });
@@ -112,7 +112,7 @@ describe('accessibility overrides', () => {
   });
 
   it('neutralises blur and opacity when reduced transparency is set', () => {
-    const overrides = accessibilityOverrides(declaredTokenIds(SAMPLE), {
+    const overrides = accessibilityOverrides(declaredTokens(SAMPLE), {
       ...NO_ACCESSIBILITY_PREFERENCES,
       reducedTransparency: true,
     });
@@ -121,7 +121,7 @@ describe('accessibility overrides', () => {
   });
 
   it('cannot be shadowed by a theme that declares the same token', () => {
-    const overrides = accessibilityOverrides(declaredTokenIds(SAMPLE), {
+    const overrides = accessibilityOverrides(declaredTokens(SAMPLE), {
       ...NO_ACCESSIBILITY_PREFERENCES,
       reducedMotion: true,
     });
@@ -134,7 +134,7 @@ describe('accessibility overrides', () => {
   });
 
   it('reports which preferences are controlling values, for the user', () => {
-    const overrides = accessibilityOverrides(declaredTokenIds(SAMPLE), {
+    const overrides = accessibilityOverrides(declaredTokens(SAMPLE), {
       reducedMotion: true,
       reducedTransparency: true,
       highContrast: false,
@@ -142,7 +142,7 @@ describe('accessibility overrides', () => {
     const result = resolveTheme(theme(SAMPLE), CONTEXT, overrides);
     if (!result.ok) return;
 
-    expect([...describeActiveOverrides(result.value)].sort()).toEqual([
+    expect([...describeActiveOverrides(result.value, declaredTokens(SAMPLE))].sort()).toEqual([
       'Reduced motion',
       'Reduced transparency',
     ]);
@@ -151,6 +151,54 @@ describe('accessibility overrides', () => {
   it('reports nothing when no preference is active', () => {
     const result = resolveTheme(theme(SAMPLE), CONTEXT);
     if (!result.ok) return;
-    expect(describeActiveOverrides(result.value)).toEqual([]);
+    expect(describeActiveOverrides(result.value, declaredTokens(SAMPLE))).toEqual([]);
+  });
+});
+
+describe('declared kinds', () => {
+  it('rejects a misdeclared kind instead of silently skipping the override', () => {
+    const result = resolveTheme(
+      theme({
+        base: { 'motion.duration.fast': { kind: 'moiton-duration', value: { form: 'literal', value: '160ms' } } },
+        semantic: {},
+        component: {},
+      } as unknown as TokenSet),
+      CONTEXT,
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe('unknown-token-kind');
+  });
+
+  it('rejects a reference that changes kind', () => {
+    const result = resolveTheme(
+      theme({
+        base: { 'motion.fast': literal('motion-duration', '160ms') },
+        semantic: { 'surface.tint': reference('color', 'motion.fast') },
+        component: {},
+      }),
+      CONTEXT,
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe('kind-mismatch');
+  });
+
+  it('overrides by kind, not by name: an oddly-named duration is still neutralised', () => {
+    const odd: TokenSet = {
+      base: { 'ui.speed.snappy': literal('motion-duration', '160ms') },
+      semantic: {},
+      component: {},
+    };
+    const overrides = accessibilityOverrides(declaredTokens(odd), {
+      ...NO_ACCESSIBILITY_PREFERENCES,
+      reducedMotion: true,
+    });
+    const result = resolveTheme(theme(odd), CONTEXT, overrides);
+    if (!result.ok) return;
+
+    expect(result.value.tokens.get(tokenId('ui.speed.snappy'))).toBe('0ms');
   });
 });
