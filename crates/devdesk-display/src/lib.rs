@@ -26,15 +26,19 @@
 //! Boundary: see `README.md`. Responsibilities are defined by
 //! `docs/architecture/SYSTEM_ARCHITECTURE.md` §6.2.1 and are not restated here.
 
+pub mod diff;
 pub mod enumerate;
 pub mod error;
 pub mod geometry;
 pub mod graph;
 pub mod hash;
+pub mod hotplug;
 pub mod identity;
 pub mod monitor;
 pub mod topology;
+pub mod transaction;
 
+pub use diff::TopologyDiff;
 pub use enumerate::{enumerate, supports_stable_identity};
 pub use error::DisplayError;
 pub use geometry::{
@@ -42,9 +46,11 @@ pub use geometry::{
     SurfaceLocalPoint, SurfaceLocalRect, SurfaceLocalSize, SurfaceOrigin,
 };
 pub use graph::{Adjacency, Direction, DisplayGraph};
+pub use hotplug::{HotplugDebouncer, DEFAULT_DEBOUNCE};
 pub use identity::{IdentityConfidence, IdentityMatch, ModelId, MonitorId, MonitorIdentity};
 pub use monitor::MonitorDescriptor;
 pub use topology::{Topology, TopologyFingerprint};
+pub use transaction::{SharedTopology, TopologyGeneration, TopologyTransaction};
 
 #[cfg(test)]
 mod tests;

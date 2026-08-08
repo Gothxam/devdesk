@@ -19,6 +19,12 @@ reported; `enumerate` resolves identity and tags geometry with its space; a
 `DisplayGraph` is an immutable spatial index over one topology snapshot. Nothing
 flows back up, and no consumer reaches past the graph to the backend.
 
+Changes are **transactional**. `SharedTopology::publish` computes the diff and
+builds the new graph outside the lock, then swaps one value, so a consumer
+observes either the whole previous arrangement or the whole next one and never a
+state in between. Each `TopologyTransaction` carries the generation, both
+arrangements, both graphs, and the computed diff.
+
 Identity is **confidence-based**, not string equality. No single reported signal
 is both always present and always stable, so a match carries an
 `IdentityConfidence` and an ambiguous match resolves to nothing rather than to a
