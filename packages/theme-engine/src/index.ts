@@ -41,3 +41,18 @@ export {
   describeResolutionError,
   resolveTheme,
 } from './resolve';
+
+export {
+  customPropertyName,
+  diffCustomProperties,
+  findUnemittableTokens,
+  isEmittableTokenId,
+  toCustomProperties,
+} from './emit';
+
+export {
+  accessibilityOverrides,
+  declaredTokenIds,
+  describeActiveOverrides,
+  hasActiveOverrides,
+} from './accessibility';
