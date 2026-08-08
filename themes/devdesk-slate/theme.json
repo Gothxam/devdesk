@@ -1,0 +1,35 @@
+{
+  "id": "devdesk.slate",
+  "name": "DevDesk Slate",
+  "$comment": "Data only (TH-1). This theme exists to validate the token system, inheritance, the emission pipeline, and runtime switching. It deliberately contains no glass effects, no animation presets, no component styling rules, and no widget-specific tokens — those arrive with the surfaces and effects that need them.",
+  "modes": {
+    "dark": {
+      "base": {
+        "color.canvas": { "kind": "color", "value": "#151a21" },
+        "color.ink": { "kind": "color", "value": "#dfe6ef" },
+        "color.accent": { "kind": "color", "value": "#7bd0c1" },
+        "motion.base": { "kind": "motion-duration", "value": "160ms" }
+      },
+      "semantic": {
+        "surface.background": { "kind": "color", "value": { "ref": "color.canvas" } },
+        "surface.foreground": { "kind": "color", "value": { "ref": "color.ink" } },
+        "surface.accent": { "kind": "color", "value": { "ref": "color.accent" } },
+        "motion.transition": { "kind": "motion-duration", "value": { "ref": "motion.base" } }
+      }
+    },
+    "light": {
+      "base": {
+        "color.canvas": { "kind": "color", "value": "#eef2f6" },
+        "color.ink": { "kind": "color", "value": "#1b222b" },
+        "color.accent": { "kind": "color", "value": "#2f8f7d" },
+        "motion.base": { "kind": "motion-duration", "value": "160ms" }
+      },
+      "semantic": {
+        "surface.background": { "kind": "color", "value": { "ref": "color.canvas" } },
+        "surface.foreground": { "kind": "color", "value": { "ref": "color.ink" } },
+        "surface.accent": { "kind": "color", "value": { "ref": "color.accent" } },
+        "motion.transition": { "kind": "motion-duration", "value": { "ref": "motion.base" } }
+      }
+    }
+  }
+}

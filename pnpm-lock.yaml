@@ -26,6 +26,9 @@ importers:
       '@devdesk/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@devdesk/theme-engine':
+        specifier: workspace:*
+        version: link:../../packages/theme-engine
       react:
         specifier: 19.2.0
         version: 19.2.0

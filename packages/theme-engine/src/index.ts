@@ -65,3 +65,5 @@ export {
   describeActiveOverrides,
   hasActiveOverrides,
 } from './accessibility';
+
+export { type ThemeParseError, describeThemeParseError, parseThemeSource } from './parse';
