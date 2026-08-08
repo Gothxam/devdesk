@@ -13,3 +13,11 @@ workspace = true
 devdesk-platform = { path = "../devdesk-platform" }
 serde = { workspace = true }
 thiserror = { workspace = true }
+
+# ADR-0002 §7.7 names `tests/perf/topology.bench.rs` as PB-G7's harness, and
+# ADR-0003 RL-14 puts cross-cutting suites under the repository-root `tests/`.
+# Pointing a test target at that path keeps the file where both documents say it
+# lives without adding a crate, which RL-4 would make an ADR amendment.
+[[test]]
+name = "topology_bench"
+path = "../../tests/perf/topology.bench.rs"
