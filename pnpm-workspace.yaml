@@ -1,0 +1,19 @@
+# ADR-0003 RL-7 — one pnpm workspace rooted at the repository root.
+#
+# themes/* is deliberately absent (RL-8): themes are data, not code. Listing them
+# would imply buildability and create the affordance TH-1 exists to foreclose.
+#
+# playground/* is deliberately absent (RL-9): a playground package would make
+# @devdesk/* specifiers resolve into experimental code, so an accidental import
+# from production would type-check and build. Exclusion makes the Playground
+# Prototyping pillar structurally enforced rather than remembered.
+#
+# tests is a single package, not a glob (RL-10): the cross-cutting suites share
+# fixtures, harness utilities, and the ADR-0002 workload definitions.
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "plugins/*"
+  - "tools/*"
+  - "examples/*"
+  - "tests"
