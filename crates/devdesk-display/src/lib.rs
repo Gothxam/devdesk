@@ -37,7 +37,8 @@ pub mod topology;
 pub use enumerate::{enumerate, supports_stable_identity};
 pub use error::DisplayError;
 pub use geometry::{
-    LogicalPoint, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, ScaleFactor,
+    LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, ScaleFactor,
+    SurfaceLocalPoint, SurfaceLocalRect, SurfaceLocalSize, SurfaceOrigin,
 };
 pub use identity::{IdentityConfidence, IdentityMatch, ModelId, MonitorId, MonitorIdentity};
 pub use monitor::MonitorDescriptor;

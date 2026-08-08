@@ -7,7 +7,7 @@
 
 use devdesk_platform::{Connector, ConnectorKind, RawMonitorInfo, RawRect};
 
-use crate::geometry::{PhysicalPoint, PhysicalRect, PhysicalSize, ScaleFactor};
+use crate::geometry::{PhysicalPoint, PhysicalRect, PhysicalSize};
 use crate::monitor::MonitorDescriptor;
 
 /// A display record with everything absent except what a display must report.
@@ -137,10 +137,6 @@ pub fn identified(index: u32, serial: &str) -> Raw {
         .model("ACM", 0x1234)
         .connector(ConnectorKind::DisplayPort, index)
         .name(&format!("ACME {serial}"))
-}
-
-pub fn scale(value: f64) -> ScaleFactor {
-    ScaleFactor::new(value).expect("test scale factor must be valid")
 }
 
 pub fn rect(x: i32, y: i32, width: u32, height: u32) -> PhysicalRect {

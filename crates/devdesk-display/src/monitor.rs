@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use devdesk_platform::{RawMonitorInfo, RawRect};
 
 use crate::error::DisplayError;
-use crate::geometry::{PhysicalPoint, PhysicalRect, PhysicalSize, ScaleFactor};
+use crate::geometry::{
+    LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, ScaleFactor,
+};
 use crate::identity::{IdentityConfidence, MonitorId, MonitorIdentity};
 
 /// The DPI Windows and every other platform report for a display at 100%.
@@ -108,6 +110,65 @@ impl MonitorDescriptor {
     #[must_use]
     pub fn identity_strength(&self) -> IdentityConfidence {
         self.identity.strength()
+    }
+
+    /// Converts a physical point to logical coordinates on this display.
+    ///
+    /// WD-2: the conversion hangs off the monitor, not off a bare number. On a
+    /// mixed-DPI desktop the same physical point converts differently depending
+    /// on which display it is on, so an API that did not require one would be
+    /// wrong on exactly the configuration this project assumes (`PS-4`).
+    #[must_use]
+    pub fn to_logical_point(&self, point: PhysicalPoint) -> LogicalPoint {
+        point.to_logical(self.scale_factor)
+    }
+
+    /// Converts a logical point to device pixels on this display.
+    #[must_use]
+    pub fn to_physical_point(&self, point: LogicalPoint) -> PhysicalPoint {
+        point.to_physical(self.scale_factor)
+    }
+
+    /// Converts a physical size to logical dimensions on this display.
+    #[must_use]
+    pub fn to_logical_size(&self, size: PhysicalSize) -> LogicalSize {
+        size.to_logical(self.scale_factor)
+    }
+
+    /// Converts a logical size to device pixels on this display.
+    #[must_use]
+    pub fn to_physical_size(&self, size: LogicalSize) -> PhysicalSize {
+        size.to_physical(self.scale_factor)
+    }
+
+    /// Converts a physical rectangle to logical coordinates on this display.
+    #[must_use]
+    pub fn to_logical_rect(&self, rect: PhysicalRect) -> LogicalRect {
+        LogicalRect {
+            origin: self.to_logical_point(rect.origin),
+            size: self.to_logical_size(rect.size),
+        }
+    }
+
+    /// Converts a logical rectangle to device pixels on this display.
+    #[must_use]
+    pub fn to_physical_rect(&self, rect: LogicalRect) -> PhysicalRect {
+        PhysicalRect {
+            origin: self.to_physical_point(rect.origin),
+            size: self.to_physical_size(rect.size),
+        }
+    }
+
+    /// This display's full bounds, in logical coordinates.
+    #[must_use]
+    pub fn logical_bounds(&self) -> LogicalRect {
+        self.to_logical_rect(self.bounds)
+    }
+
+    /// This display's usable area, in logical coordinates.
+    #[must_use]
+    pub fn logical_work_area(&self) -> LogicalRect {
+        self.to_logical_rect(self.work_area)
     }
 
     /// Refresh rate in whole hertz, when reported.
