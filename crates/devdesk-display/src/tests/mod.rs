@@ -6,5 +6,6 @@
 
 mod fixtures;
 mod geometry;
+mod graph;
 mod identity;
 mod topology;

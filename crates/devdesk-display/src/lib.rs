@@ -29,6 +29,7 @@
 pub mod enumerate;
 pub mod error;
 pub mod geometry;
+pub mod graph;
 pub mod hash;
 pub mod identity;
 pub mod monitor;
@@ -40,6 +41,7 @@ pub use geometry::{
     LogicalPoint, LogicalRect, LogicalSize, PhysicalPoint, PhysicalRect, PhysicalSize, ScaleFactor,
     SurfaceLocalPoint, SurfaceLocalRect, SurfaceLocalSize, SurfaceOrigin,
 };
+pub use graph::{Adjacency, Direction, DisplayGraph};
 pub use identity::{IdentityConfidence, IdentityMatch, ModelId, MonitorId, MonitorIdentity};
 pub use monitor::MonitorDescriptor;
 pub use topology::{Topology, TopologyFingerprint};
