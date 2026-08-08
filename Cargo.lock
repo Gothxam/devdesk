@@ -617,6 +617,9 @@ version = "0.1.0"
 [[package]]
 name = "devdesk-display"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "devdesk-ipc"
