@@ -28,3 +28,7 @@ path = "../../tests/integration/window_lifecycle.rs"
 [[test]]
 name = "window_races"
 path = "../../tests/integration/window_races.rs"
+
+[[test]]
+name = "window_recovery"
+path = "../../tests/integration/window_recovery.rs"

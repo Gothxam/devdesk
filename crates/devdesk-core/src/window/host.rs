@@ -191,10 +191,19 @@ impl SurfaceHost {
 
     /// Removes a surface and destroys its window.
     ///
+    /// **The surface is removed whether or not its window could be destroyed.**
+    /// Unlike a failed create, this is not rolled back: the caller asked for the
+    /// surface to be gone, and keeping it registered because the windowing
+    /// system hiccuped would leave a surface the user believes they deleted —
+    /// which would then reappear on the next arrangement restore. A returned
+    /// error means a window may have been leaked, and re-removing is not the
+    /// remedy for that.
+    ///
     /// # Errors
     ///
     /// [`HostError::Window`] if the surface is unknown, and [`HostError::Sink`]
-    /// if the window could not be destroyed.
+    /// if the window could not be destroyed — after the surface has already been
+    /// removed.
     pub fn remove(&self, surface: &SurfaceId) -> Result<WindowOutcome, HostError> {
         let mut manager = self.manager();
         let outcome = manager.remove_surface(surface)?;
