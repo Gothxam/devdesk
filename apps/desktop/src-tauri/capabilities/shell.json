@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "shell-window",
+  "description": "Permissions for the DevDesk shell window: settings, library, onboarding.",
+  "windows": ["shell"],
+  "platforms": ["windows", "macOS", "linux"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

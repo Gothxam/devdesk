@@ -13,10 +13,12 @@
  * ADR-0003 R-7: this lint asserts it actually scanned something. A path-based
  * check that matches nothing passes silently, which is worse than no check.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, sep } from 'node:path';
 
-const CRATES_DIR = 'crates';
+// Every Rust source in the repository is subject to DR-6, including the binary
+// crate under apps/*/src-tauri — it is a crate like any other.
+const SCAN_ROOTS = ['crates', 'apps'];
 const EXEMPT_CRATE = 'devdesk-platform';
 const TARGET_OS_CFG = /#\[\s*cfg\s*\(\s*(?:not\s*\(\s*)?target_os\s*=/;
 const TEST_GATED = /#\[\s*cfg\s*\(\s*(?:test|all\s*\(\s*test)/;
@@ -26,7 +28,7 @@ function walk(dir) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) {
-      if (entry === 'target' || entry === 'node_modules') continue;
+      if (entry === 'target' || entry === 'node_modules' || entry === 'gen') continue;
       out.push(...walk(full));
     } else if (entry.endsWith('.rs')) {
       out.push(full);
@@ -38,24 +40,26 @@ function walk(dir) {
 let scanned = 0;
 const violations = [];
 
-for (const file of walk(CRATES_DIR)) {
-  scanned += 1;
-  const crate = relative(CRATES_DIR, file).split(sep)[0];
-  if (crate === EXEMPT_CRATE) continue;
+for (const root of SCAN_ROOTS) {
+  if (!existsSync(root)) continue;
+  for (const file of walk(root)) {
+    scanned += 1;
+    if (file.split(sep).includes(EXEMPT_CRATE)) continue;
 
-  const lines = readFileSync(file, 'utf8').split(/\r?\n/);
-  lines.forEach((line, i) => {
-    if (TARGET_OS_CFG.test(line) && !TEST_GATED.test(line)) {
-      violations.push({ file, line: i + 1, text: line.trim() });
-    }
-  });
+    const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+    lines.forEach((line, i) => {
+      if (TARGET_OS_CFG.test(line) && !TEST_GATED.test(line)) {
+        violations.push({ file, line: i + 1, text: line.trim() });
+      }
+    });
+  }
 }
 
 // R-7: a check that scanned nothing has stopped applying and must fail.
 if (scanned === 0) {
   console.error(
-    `lint-cfg-usage: scanned 0 Rust files under ${CRATES_DIR}/. The rule has stopped ` +
-      `applying — this is a lint failure, not a pass (ADR-0003 R-7).`,
+    `lint-cfg-usage: scanned 0 Rust files under ${SCAN_ROOTS.join(', ')}. The rule has ` +
+      `stopped applying — this is a lint failure, not a pass (ADR-0003 R-7).`,
   );
   process.exit(2);
 }

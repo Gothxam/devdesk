@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>DevDesk isolation</title>
+  </head>
+  <body>
+    <!--
+      Tauri isolation pattern (SEC-6). This document is interposed between every
+      surface and the IPC bridge, and is the last line of defence if a surface is
+      ever compromised by injected content.
+
+      It is intentionally inert: Tauri injects its own isolation script here at
+      build time. Application code MUST NOT be added to this document.
+    -->
+    <script src="index.js"></script>
+  </body>
+</html>

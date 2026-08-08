@@ -10,7 +10,7 @@
   "scripts": {
     "check:rust": "cargo clippy --all-targets --all-features -- -D warnings",
     "check:fmt:rust": "cargo fmt --all -- --check",
-    "check:types": "pnpm -r --filter \"./packages/*\" run typecheck",
+    "check:types": "pnpm -r --filter \"./packages/*\" --filter \"./apps/*\" run typecheck",
     "check:layering": "depcruise --config configs/dependency-cruiser/.dependency-cruiser.cjs packages",
     "check:cfg": "node scripts/lint-cfg-usage.mjs",
     "check": "pnpm run check:fmt:rust && pnpm run check:rust && pnpm run check:types && pnpm run check:layering && pnpm run check:cfg"

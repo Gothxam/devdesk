@@ -1,0 +1,28 @@
+[package]
+name = "devdesk-app"
+description = "DevDesk desktop host — thin composition root (DR-7)"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "devdesk_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[build-dependencies]
+# SEC-6: the isolation pattern is enabled in tauri.conf.json, and Tauri requires
+# the feature on both the build and runtime dependency. The allowlist check fails
+# the build if they diverge.
+tauri-build = { version = "2", features = ["isolation"] }
+
+[dependencies]
+devdesk-core = { path = "../../../crates/devdesk-core" }
+devdesk-ipc = { path = "../../../crates/devdesk-ipc" }
+# isolation      — SEC-6, the interposed frame between surface and IPC bridge
+# protocol-asset — SEC-7, the scope-gated asset protocol for theme and plugin assets
+tauri = { version = "2", features = ["isolation", "protocol-asset"] }

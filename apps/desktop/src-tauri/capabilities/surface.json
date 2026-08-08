@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "surface-window",
+  "description": "Minimum permissions for a plugin-backed surface window. SEC-9: core:default is deliberately absent — it is broader than a surface needs.",
+  "windows": ["surface-*"],
+  "platforms": ["windows", "macOS", "linux"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:window:allow-start-dragging"
+  ]
+}
