@@ -16,7 +16,14 @@
 
 import { type Result, err, ok } from '@devdesk/shared';
 
-import { type ThemeSnapshot, type ValueOrigin, freezeSnapshot } from './snapshot';
+import { hashThemeInputs } from './hash';
+import type { AccessibilityPreferences } from './preferences';
+import {
+  THEME_SNAPSHOT_VERSION,
+  type ThemeSnapshot,
+  type ValueOrigin,
+  freezeSnapshot,
+} from './snapshot';
 import {
   LAYERS,
   type ThemeMode,
@@ -30,18 +37,7 @@ import {
   tokenId,
 } from './token';
 
-/** Operating-system preferences that override theme values unconditionally. */
-export interface AccessibilityPreferences {
-  readonly reducedMotion: boolean;
-  readonly reducedTransparency: boolean;
-  readonly highContrast: boolean;
-}
-
-export const NO_ACCESSIBILITY_PREFERENCES: AccessibilityPreferences = Object.freeze({
-  reducedMotion: false,
-  reducedTransparency: false,
-  highContrast: false,
-});
+export type { AccessibilityPreferences };
 
 export interface ResolutionContext {
   readonly mode: ThemeMode;
@@ -240,12 +236,18 @@ export function resolveTheme(
 
   return ok(
     freezeSnapshot({
-      themeId: source.id,
-      themeName: source.name,
-      mode: context.mode,
+      version: THEME_SNAPSHOT_VERSION,
+      hash: hashThemeInputs(source, context.mode, context.accessibility),
       tokens: resolved,
       origins,
       accessibilityOverrides: overridden,
+      metadata: {
+        themeId: source.id,
+        themeName: source.name,
+        mode: context.mode,
+        tokenCount: resolved.size,
+        overrideCount: overridden.size,
+      },
     }),
   );
 }

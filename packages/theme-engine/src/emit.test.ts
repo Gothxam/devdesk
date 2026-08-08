@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { accessibilityOverrides, declaredTokens, describeActiveOverrides } from './accessibility';
+import { accessibilityOverrides, describeActiveOverrides } from './accessibility';
+import { declaredTokens } from './token';
 import { customPropertyName, emitDiff } from './emit';
 import { diffSnapshots } from './diff';
-import { NO_ACCESSIBILITY_PREFERENCES, resolveTheme } from './resolve';
+import { resolveTheme } from './resolve';
+import { NO_ACCESSIBILITY_PREFERENCES } from './preferences';
 import type { ResolutionContext } from './resolve';
 import { type ThemeSource, type TokenSet, literal, reference, tokenId } from './token';
 

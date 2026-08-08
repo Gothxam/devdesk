@@ -19,6 +19,7 @@ import {
   type ThemeSource,
   createSnapshotPool,
   describeResolutionError,
+  fallbackSnapshot,
   diffSnapshots,
   emitDiff,
 } from '@devdesk/theme-engine';
@@ -35,8 +36,19 @@ export interface ThemeSelection {
 export interface ThemeController {
   /** Applies a selection. Returns the failure reason if the theme cannot resolve. */
   apply(selection: ThemeSelection): { readonly ok: true } | { readonly ok: false; readonly reason: string };
-  /** Restores the default bundled theme in one action (`AC-THM-4.2`). */
-  restoreDefault(mode: ThemeMode, accessibility: AccessibilityPreferences): void;
+  /**
+   * Restores a working theme in one action (`AC-THM-4.2`).
+   *
+   * Cannot fail. If the bundled default is missing or unresolvable, the embedded
+   * fallback is applied instead and the reason is reported. P-10 says there is
+   * always a way back — a recovery path that can throw is not one, and throwing
+   * here would leave the user with exactly the broken desktop they were trying
+   * to escape.
+   */
+  restoreDefault(
+    mode: ThemeMode,
+    accessibility: AccessibilityPreferences,
+  ): { readonly applied: 'default' | 'fallback'; readonly reason?: string };
   /** The snapshot currently applied to the document, if any. */
   readonly applied: ThemeSnapshot | undefined;
 }
@@ -70,15 +82,28 @@ export function createThemeController(registry: ThemeRegistry, root: HTMLElement
     },
 
     restoreDefault(mode, accessibility) {
-      const fallback = findTheme(registry, DEFAULT_THEME_ID);
-      if (fallback === undefined) {
-        // P-10: there is always a way back. If the default is missing the build
-        // is broken, and saying so beats leaving a half-themed desktop.
-        throw new Error(
-          `The default theme "${DEFAULT_THEME_ID}" is missing from this build. Reinstall DevDesk.`,
+      const useEmbedded = (reason: string): { applied: 'fallback'; reason: string } => {
+        // Applied directly: the embedded snapshot is not resolved, so it does not
+        // depend on the code path that just failed.
+        const snapshot = fallbackSnapshot(mode);
+        applyPatch(emitDiff(diffSnapshots(applied, snapshot)), root);
+        applied = snapshot;
+        return { applied: 'fallback', reason };
+      };
+
+      const source = findTheme(registry, DEFAULT_THEME_ID);
+      if (source === undefined) {
+        return useEmbedded(
+          `The default theme "${DEFAULT_THEME_ID}" is not installed. A built-in fallback is in use.`,
         );
       }
-      commit(fallback, { themeId: DEFAULT_THEME_ID, mode, accessibility });
+
+      const failure = commit(source, { themeId: DEFAULT_THEME_ID, mode, accessibility });
+      return failure === undefined
+        ? { applied: 'default' }
+        : useEmbedded(
+            `The default theme could not be applied (${describeResolutionError(failure)}). A built-in fallback is in use.`,
+          );
     },
 
     get applied() {

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { diffSnapshots, isEmptyDiff } from './diff';
 import { emitDiff, isEmptyPatch } from './emit';
 import { createSnapshotPool } from './intern';
-import { NO_ACCESSIBILITY_PREFERENCES } from './resolve';
+import { NO_ACCESSIBILITY_PREFERENCES } from './preferences';
 import type { ResolutionContext } from './resolve';
 import { type ThemeSource, type TokenSet, literal, reference, tokenId } from './token';
 

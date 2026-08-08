@@ -18,10 +18,9 @@
  * token is wrong.
  */
 
-import type { AccessibilityPreferences } from './resolve';
+import type { AccessibilityPreferences } from './preferences';
 import type { ThemeSnapshot } from './snapshot';
-import type { TokenDefinition, TokenId, TokenKind, TokenSet } from './token';
-import { tokenId } from './token';
+import type { TokenDefinition, TokenId, TokenKind } from './token';
 
 /** What an active preference forces a kind to, and how that reads to a user. */
 interface OverrideRule {
@@ -75,17 +74,6 @@ export function accessibilityOverrides(
   }
 
   return overrides;
-}
-
-/** Every declared token of one mode, flattened across the three layers. */
-export function declaredTokens(set: TokenSet): ReadonlyMap<TokenId, TokenDefinition> {
-  const flat = new Map<TokenId, TokenDefinition>();
-  for (const layer of [set.base, set.semantic, set.component]) {
-    for (const [name, definition] of Object.entries(layer)) {
-      flat.set(tokenId(name), definition);
-    }
-  }
-  return flat;
 }
 
 /** Whether any preference is active. */

@@ -23,6 +23,7 @@ export {
   type TokenValueForm,
   LAYERS,
   TOKEN_KINDS,
+  declaredTokens,
   isTokenKind,
   layerRank,
   literal,
@@ -31,17 +32,17 @@ export {
 } from './token';
 
 export {
+  THEME_SNAPSHOT_VERSION,
   type ThemeSnapshot,
+  type ThemeSnapshotMetadata,
   type ValueOrigin,
   freezeSnapshot,
   readToken,
 } from './snapshot';
 
 export {
-  type AccessibilityPreferences,
   type ResolutionContext,
   type ResolutionError,
-  NO_ACCESSIBILITY_PREFERENCES,
   describeResolutionError,
   resolveTheme,
 } from './resolve';
@@ -61,9 +62,16 @@ export { type SnapshotPool, createSnapshotPool } from './intern';
 
 export {
   accessibilityOverrides,
-  declaredTokens,
   describeActiveOverrides,
   hasActiveOverrides,
 } from './accessibility';
 
 export { type ThemeParseError, describeThemeParseError, parseThemeSource } from './parse';
+
+export { FALLBACK_THEME_ID, fallbackSnapshot, isFallbackSnapshot } from './fallback';
+export { hashThemeInputs } from './hash';
+
+export {
+  type AccessibilityPreferences,
+  NO_ACCESSIBILITY_PREFERENCES,
+} from './preferences';

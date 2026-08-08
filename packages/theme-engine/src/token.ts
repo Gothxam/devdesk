@@ -127,3 +127,14 @@ export interface ThemeSource {
   readonly name: string;
   readonly modes: Readonly<Record<ThemeMode, TokenSet>>;
 }
+
+/** Every declared token of one mode, flattened across the three layers. */
+export function declaredTokens(set: TokenSet): ReadonlyMap<TokenId, TokenDefinition> {
+  const flat = new Map<TokenId, TokenDefinition>();
+  for (const layer of [set.base, set.semantic, set.component]) {
+    for (const [name, definition] of Object.entries(layer)) {
+      flat.set(tokenId(name), definition);
+    }
+  }
+  return flat;
+}

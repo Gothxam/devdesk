@@ -100,7 +100,7 @@ describe('runtime theme switching', () => {
 
     controller.restoreDefault('dark', PREFS);
 
-    expect(controller.applied?.themeId).toBe(DEFAULT_THEME_ID);
+    expect(controller.applied?.metadata.themeId).toBe(DEFAULT_THEME_ID);
     expect(root.props.get('--surface-background')).toBe('#0f1115');
   });
 
@@ -115,5 +115,83 @@ describe('runtime theme switching', () => {
 
     expect(root.props.get('--motion-base')).toBe('0ms');
     expect(root.props.get('--motion-transition')).toBe('0ms');
+  });
+});
+
+describe('restoreDefault never leaves the user without a theme', () => {
+  it('applies the embedded fallback when the default theme is not installed', () => {
+    const root = fakeRoot();
+    // A registry with no default: the exact corruption case P-10 must survive.
+    const registry = buildRegistry([
+      { source: 'themes/devdesk-slate', data: BUNDLED_THEME_DATA[1]?.data },
+    ]);
+    const controller = createThemeController(registry, root);
+
+    const outcome = controller.restoreDefault('dark', PREFS);
+
+    expect(outcome.applied).toBe('fallback');
+    expect(outcome.reason).toContain('fallback');
+    // A working desktop, not an exception.
+    expect(root.props.get('--surface-background')).toBeDefined();
+    expect(controller.applied?.metadata.themeId).toBe('devdesk.embedded-fallback');
+  });
+
+  it('applies the embedded fallback when every theme is rejected', () => {
+    const root = fakeRoot();
+    const controller = createThemeController(buildRegistry([]), root);
+
+    const outcome = controller.restoreDefault('light', PREFS);
+
+    expect(outcome.applied).toBe('fallback');
+    expect(root.props.get('--surface-foreground')).toBe('#101216');
+  });
+
+  it('recovers from a broken theme to the fallback in one action', () => {
+    const root = fakeRoot();
+    const controller = createThemeController(buildRegistry([]), root);
+    controller.restoreDefault('dark', PREFS);
+
+    // The fallback is usable: foreground and background differ, so text is legible.
+    expect(root.props.get('--surface-background')).not.toBe(root.props.get('--surface-foreground'));
+  });
+
+  it('the fallback is safe under any accessibility preference without resolving overrides', () => {
+    const root = fakeRoot();
+    const controller = createThemeController(buildRegistry([]), root);
+    controller.restoreDefault('dark', { reducedMotion: true, reducedTransparency: true, highContrast: true });
+
+    expect(root.props.get('--motion-base')).toBe('0ms');
+    expect(root.props.get('--motion-transition')).toBe('0ms');
+  });
+
+  it('prefers the real default when it is available', () => {
+    const root = fakeRoot();
+    const controller = createThemeController(buildRegistry(BUNDLED_THEME_DATA), root);
+
+    const outcome = controller.restoreDefault('dark', PREFS);
+
+    expect(outcome.applied).toBe('default');
+    expect(outcome.reason).toBeUndefined();
+    expect(controller.applied?.metadata.themeId).toBe(DEFAULT_THEME_ID);
+  });
+});
+
+describe('snapshot versioning', () => {
+  it('stamps a version and a content hash on every snapshot', () => {
+    const root = fakeRoot();
+    const controller = createThemeController(buildRegistry(BUNDLED_THEME_DATA), root);
+    controller.apply({ themeId: DEFAULT_THEME_ID, mode: 'dark', accessibility: PREFS });
+
+    expect(controller.applied?.version).toBe(1);
+    expect(controller.applied?.hash).toMatch(/^[0-9a-f]{8}$/);
+    expect(controller.applied?.metadata.tokenCount).toBeGreaterThan(0);
+  });
+
+  it('gives the embedded fallback a reserved hash that cannot collide with a theme', () => {
+    const root = fakeRoot();
+    const controller = createThemeController(buildRegistry([]), root);
+    controller.restoreDefault('dark', PREFS);
+
+    expect(controller.applied?.hash).toBe('embedded-dark');
   });
 });

@@ -51,10 +51,12 @@ export function diffSnapshots(from: ThemeSnapshot | undefined, to: ThemeSnapshot
   const changed = new Map<TokenId, string>();
   const removed = new Set<TokenId>();
 
-  if (from === to) {
+  // Identity first, then hash: two snapshots from different pools with the same
+  // inputs are interchangeable, so they diff to nothing without a comparison.
+  if (from === to || (from !== undefined && from.hash === to.hash)) {
     return Object.freeze({
-      fromThemeId: from?.themeId,
-      toThemeId: to.themeId,
+      fromThemeId: from?.metadata.themeId,
+      toThemeId: to.metadata.themeId,
       changed,
       removed,
     });
@@ -73,8 +75,8 @@ export function diffSnapshots(from: ThemeSnapshot | undefined, to: ThemeSnapshot
   }
 
   return Object.freeze({
-    fromThemeId: from?.themeId,
-    toThemeId: to.themeId,
+    fromThemeId: from?.metadata.themeId,
+    toThemeId: to.metadata.themeId,
     changed,
     removed,
   });
