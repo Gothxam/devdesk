@@ -17,3 +17,10 @@ thiserror = { workspace = true }
 [dev-dependencies]
 devdesk-platform = { path = "../devdesk-platform" }
 serde_json = { workspace = true }
+
+# ADR-0003 RL-14 puts cross-cutting suites under the repository-root `tests/`.
+# Pointing a test target at that path keeps the file where the ADR says it lives
+# without adding a crate, which RL-4 would make an ADR amendment.
+[[test]]
+name = "window_lifecycle"
+path = "../../tests/integration/window_lifecycle.rs"

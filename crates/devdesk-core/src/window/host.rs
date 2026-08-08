@@ -22,7 +22,7 @@
 
 use std::sync::{Mutex, MutexGuard};
 
-use devdesk_display::TopologyTransaction;
+use devdesk_display::{MonitorId, TopologyTransaction};
 
 use super::event::WindowCommand;
 use super::id::SurfaceId;
@@ -124,6 +124,26 @@ impl SurfaceHost {
     /// the window could not be created.
     pub fn register(&self, surface: SurfaceId) -> Result<WindowOutcome, HostError> {
         let outcome = self.manager().register_surface(surface)?;
+        self.dispatch(&outcome)?;
+        Ok(outcome)
+    }
+
+    /// Assigns a surface to a display, recording that it belongs there.
+    ///
+    /// How a restored arrangement is applied. Produces no commands — which
+    /// display a surface belongs to is association, and moving its window is
+    /// placement.
+    ///
+    /// # Errors
+    ///
+    /// [`HostError::Window`] if the surface is unknown or the display is not
+    /// attached.
+    pub fn assign(
+        &self,
+        surface: &SurfaceId,
+        monitor: &MonitorId,
+    ) -> Result<WindowOutcome, HostError> {
+        let outcome = self.manager().assign(surface, monitor)?;
         self.dispatch(&outcome)?;
         Ok(outcome)
     }
