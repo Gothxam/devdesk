@@ -47,12 +47,17 @@ export {
 } from './resolve';
 
 export {
+  type CustomPropertyPatch,
   customPropertyName,
-  diffCustomProperties,
-  findUnemittableTokens,
+  emitDiff,
+  findUnemittableTokenIds,
   isEmittableTokenId,
-  toCustomProperties,
+  isEmptyPatch,
 } from './emit';
+
+export { type ThemeDiff, diffSnapshots, isEmptyDiff } from './diff';
+
+export { type SnapshotPool, createSnapshotPool } from './intern';
 
 export {
   accessibilityOverrides,

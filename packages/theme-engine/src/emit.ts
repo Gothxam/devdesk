@@ -1,30 +1,38 @@
 /**
- * Emission: turning a resolved snapshot into CSS custom properties.
+ * Emission: turning a {@link ThemeDiff} into CSS custom properties.
  *
- * This is a **pure transform**, deliberately separated from resolution. The
- * engine resolves tokens; emission renders one snapshot into one output format.
- * Neither module touches a document — applying properties is the shell's job.
+ * ```text
+ * ThemeSnapshot → ThemeDiff → CustomPropertyPatch → DOM
+ * ```
  *
- * The separation is what makes "token-resolution system, not CSS theme system"
- * true in the code rather than in a comment: a second emission target (a native
- * surface backend, §26.1) is a new function here, not a change to the engine.
+ * Emission consumes a **diff**, never a snapshot. There is deliberately no
+ * snapshot-to-DOM path: see `diff.ts` for why, and note that the absence of the
+ * function is the enforcement. A second emission target for a native surface
+ * backend (§26.1) is a new function here, not a change to the engine.
  *
- * Custom properties are the emission target because TH-4 requires theme switching
- * to re-emit properties on the root rather than remount the tree — that is what
- * makes `PB-R4` reachable at all.
+ * Custom properties are the target because TH-4 requires switching to re-emit
+ * properties on the root rather than remount the tree — which is what makes
+ * `PB-R4` reachable at all.
  */
 
-import type { ThemeSnapshot } from './snapshot';
+import type { ThemeDiff } from './diff';
 import type { TokenId } from './token';
 
 /** Characters permitted in a token id. */
 const VALID_TOKEN_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 
 /**
- * Converts a token id to a CSS custom property name.
+ * A patch to apply to a document root.
  *
- * `surface.glass.tint` becomes `--surface-glass-tint`.
+ * Removal is explicit rather than "set to empty string": a stale property left
+ * behind is a value the user did not choose, still rendering.
  */
+export interface CustomPropertyPatch {
+  readonly set: Readonly<Record<string, string>>;
+  readonly remove: readonly string[];
+}
+
+/** Converts a token id to a CSS custom property name. */
 export function customPropertyName(id: TokenId): string {
   return `--${id.replaceAll('.', '-')}`;
 }
@@ -35,63 +43,45 @@ export function isEmittableTokenId(id: string): boolean {
 }
 
 /**
- * Renders a snapshot as custom properties.
+ * Renders a diff as a custom-property patch.
  *
  * Tokens whose ids cannot be expressed as a property name are omitted rather
  * than emitted malformed — a malformed property is silently ignored by the
  * browser, which is exactly the silent failure P-9 prohibits. Use
- * {@link findUnemittableTokens} to surface them at validation time instead.
+ * {@link findUnemittableTokenIds} to surface them at validation time instead.
  */
-export function toCustomProperties(snapshot: ThemeSnapshot): Readonly<Record<string, string>> {
-  const out: Record<string, string> = {};
-  for (const [id, value] of snapshot.tokens) {
+export function emitDiff(diff: ThemeDiff): CustomPropertyPatch {
+  const set: Record<string, string> = {};
+  const remove: string[] = [];
+
+  for (const [id, value] of diff.changed) {
     if (!isEmittableTokenId(id)) continue;
-    out[customPropertyName(id)] = value;
+    set[customPropertyName(id)] = value;
   }
-  return Object.freeze(out);
+
+  for (const id of diff.removed) {
+    if (!isEmittableTokenId(id)) continue;
+    remove.push(customPropertyName(id));
+  }
+
+  return Object.freeze({ set: Object.freeze(set), remove: Object.freeze(remove) });
+}
+
+/** Whether a patch would change anything. */
+export function isEmptyPatch(patch: CustomPropertyPatch): boolean {
+  return Object.keys(patch.set).length === 0 && patch.remove.length === 0;
 }
 
 /**
- * Lists tokens that cannot be emitted.
+ * Lists token ids that cannot be emitted.
  *
  * Reported at load so a theme with an unusable token id fails validation rather
  * than rendering with silent gaps (TH-3, P-9).
  */
-export function findUnemittableTokens(snapshot: ThemeSnapshot): readonly TokenId[] {
+export function findUnemittableTokenIds(ids: Iterable<TokenId>): readonly TokenId[] {
   const bad: TokenId[] = [];
-  for (const id of snapshot.tokens.keys()) {
+  for (const id of ids) {
     if (!isEmittableTokenId(id)) bad.push(id);
   }
   return bad;
-}
-
-/**
- * Computes the properties that differ between two snapshots.
- *
- * Theme switching applies a diff rather than the whole set. With a dozen
- * surfaces this is the difference between touching every property on every
- * surface and touching the handful that changed — which is what keeps switching
- * inside `PB-R4` as the token set grows.
- *
- * Returns `null` for a property that exists in `from` but not `to`, so the caller
- * can remove it rather than leave a stale value behind.
- */
-export function diffCustomProperties(
-  from: ThemeSnapshot | undefined,
-  to: ThemeSnapshot,
-): Readonly<Record<string, string | null>> {
-  const next = toCustomProperties(to);
-  if (from === undefined) return next;
-
-  const previous = toCustomProperties(from);
-  const changes: Record<string, string | null> = {};
-
-  for (const [name, value] of Object.entries(next)) {
-    if (previous[name] !== value) changes[name] = value;
-  }
-  for (const name of Object.keys(previous)) {
-    if (!(name in next)) changes[name] = null;
-  }
-
-  return Object.freeze(changes);
 }

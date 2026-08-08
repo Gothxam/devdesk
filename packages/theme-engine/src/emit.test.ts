@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { accessibilityOverrides, declaredTokens, describeActiveOverrides } from './accessibility';
-import { customPropertyName, diffCustomProperties, findUnemittableTokens, toCustomProperties } from './emit';
+import { customPropertyName, emitDiff } from './emit';
+import { diffSnapshots } from './diff';
 import { NO_ACCESSIBILITY_PREFERENCES, resolveTheme } from './resolve';
 import type { ResolutionContext } from './resolve';
 import { type ThemeSource, type TokenSet, literal, reference, tokenId } from './token';
@@ -27,77 +28,6 @@ const SAMPLE: TokenSet = {
 describe('customPropertyName', () => {
   it('maps dotted token ids to dashed custom properties', () => {
     expect(customPropertyName(tokenId('surface.glass.tint'))).toBe('--surface-glass-tint');
-  });
-});
-
-describe('toCustomProperties', () => {
-  it('emits every resolved token', () => {
-    const result = resolveTheme(theme(SAMPLE), CONTEXT);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-
-    const props = toCustomProperties(result.value);
-    expect(props['--panel-background']).toBe('#0f1115');
-    expect(props['--surface-background']).toBe('#0f1115');
-    expect(props['--color-slate-900']).toBe('#0f1115');
-  });
-
-  it('returns a frozen object so emission output cannot be mutated in place', () => {
-    const result = resolveTheme(theme(SAMPLE), CONTEXT);
-    if (!result.ok) return;
-    expect(Object.isFrozen(toCustomProperties(result.value))).toBe(true);
-  });
-
-  it('omits unemittable ids rather than emitting a malformed property', () => {
-    const result = resolveTheme(
-      theme({ base: { 'Bad Token!': literal('color', '#fff'), 'color.a': literal('color', '#000') }, semantic: {}, component: {} }),
-      CONTEXT,
-    );
-    if (!result.ok) return;
-
-    const props = toCustomProperties(result.value);
-    expect(Object.keys(props)).toEqual(['--color-a']);
-    expect(findUnemittableTokens(result.value)).toEqual([tokenId('Bad Token!')]);
-  });
-});
-
-describe('diffCustomProperties', () => {
-  it('returns everything when there is no previous snapshot', () => {
-    const next = resolveTheme(theme(SAMPLE), CONTEXT);
-    if (!next.ok) return;
-    expect(Object.keys(diffCustomProperties(undefined, next.value)).length).toBeGreaterThan(0);
-  });
-
-  it('returns only what changed between two snapshots', () => {
-    const before = resolveTheme(theme(SAMPLE), CONTEXT);
-    const after = resolveTheme(
-      theme({ ...SAMPLE, base: { ...SAMPLE.base, 'color.slate.900': literal('color', '#ffffff') } }),
-      CONTEXT,
-    );
-    if (!before.ok || !after.ok) return;
-
-    const changes = diffCustomProperties(before.value, after.value);
-    expect(changes['--color-slate-900']).toBe('#ffffff');
-    // Untouched tokens are absent, not re-emitted with the same value.
-    expect('--effect-blur-panel' in changes).toBe(false);
-  });
-
-  it('marks a removed property as null so a stale value is not left behind', () => {
-    const before = resolveTheme(theme(SAMPLE), CONTEXT);
-    const after = resolveTheme(
-      theme({ base: { 'color.slate.900': literal('color', '#0f1115') }, semantic: {}, component: {} }),
-      CONTEXT,
-    );
-    if (!before.ok || !after.ok) return;
-
-    expect(diffCustomProperties(before.value, after.value)['--effect-blur-panel']).toBeNull();
-  });
-
-  it('produces no changes between two resolutions of the same source', () => {
-    const a = resolveTheme(theme(SAMPLE), CONTEXT);
-    const b = resolveTheme(theme(SAMPLE), CONTEXT);
-    if (!a.ok || !b.ok) return;
-    expect(Object.keys(diffCustomProperties(a.value, b.value))).toEqual([]);
   });
 });
 
@@ -130,7 +60,7 @@ describe('accessibility overrides', () => {
 
     // The theme says 160ms. The operating system wins, unconditionally (D-5).
     expect(result.value.tokens.get(tokenId('motion.duration.fast'))).toBe('0ms');
-    expect(toCustomProperties(result.value)['--motion-duration-fast']).toBe('0ms');
+    expect(emitDiff(diffSnapshots(undefined, result.value)).set['--motion-duration-fast']).toBe('0ms');
   });
 
   it('reports which preferences are controlling values, for the user', () => {

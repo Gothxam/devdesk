@@ -16,7 +16,9 @@
     "check": "pnpm run check:fmt:rust && pnpm run check:rust && pnpm run check:types && pnpm run check:layering && pnpm run check:cfg && pnpm run check:contract && pnpm run test",
     "contract:export": "cargo run -q -p devdesk-app --bin export-contract",
     "check:contract": "node scripts/check-contract-drift.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "dependency-cruiser": "17.0.1",

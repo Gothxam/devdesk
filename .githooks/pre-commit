@@ -1,0 +1,35 @@
+#!/bin/sh
+#
+# Runs the full gate before every commit.
+#
+# SPRINT_1.md: "Every commit leaves the repository green." That rule survived
+# three near-misses in Sprint 1 on human discipline alone and lost twice — once
+# committing on a failing typecheck, once on a masked pipe exit status. A rule
+# enforced by a hook does not depend on remembering.
+#
+# Install: pnpm run hooks:install   (sets core.hooksPath)
+# Bypass:  git commit --no-verify   (should be rare enough to be notable)
+
+set -e
+
+if [ -n "$DEVDESK_SKIP_HOOKS" ]; then
+  echo "pre-commit: skipped via DEVDESK_SKIP_HOOKS"
+  exit 0
+fi
+
+# Cargo lives outside the default Git Bash PATH on Windows.
+if [ -d "$HOME/.cargo/bin" ]; then
+  PATH="$HOME/.cargo/bin:$PATH"
+  export PATH
+fi
+
+echo "pre-commit: running the full gate..."
+
+if ! pnpm run check; then
+  echo ""
+  echo "pre-commit: BLOCKED — the gate failed, so nothing was committed."
+  echo "Fix the failure above, or bypass deliberately with --no-verify."
+  exit 1
+fi
+
+echo "pre-commit: gate green."
