@@ -22,7 +22,9 @@ use devdesk_display::{
     DisplayGraph, MonitorDescriptor, MonitorId, Topology, TopologyGeneration, TopologyTransaction,
 };
 
-use super::event::WindowEvent;
+use super::event::{AssociationReason, WindowEvent};
+use super::id::SurfaceId;
+use super::surface::{AssociationIntent, SurfaceError, SurfaceManager};
 
 /// Why a topology transaction was not adopted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -41,11 +43,29 @@ pub enum ObserveError {
     },
 }
 
-/// The window subsystem's authoritative view of the displays.
+/// Why a surface operation failed.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum WindowError {
+    /// The surface registry refused.
+    #[error(transparent)]
+    Surface(#[from] SurfaceError),
+
+    /// A caller assigned a surface to a display that is not attached.
+    ///
+    /// Rejected rather than accepted-and-corrected: a caller pointing at a
+    /// display that is not there is working from a topology it no longer holds,
+    /// and quietly substituting another display would place the surface
+    /// somewhere nobody asked for.
+    #[error("monitor {monitor} is not attached")]
+    MonitorNotAttached { monitor: MonitorId },
+}
+
+/// The window subsystem's authoritative view of the displays and surfaces.
 #[derive(Debug)]
 pub struct WindowManager {
     graph: Arc<DisplayGraph>,
     generation: TopologyGeneration,
+    surfaces: SurfaceManager,
 }
 
 impl Default for WindowManager {
@@ -66,7 +86,184 @@ impl WindowManager {
         Self {
             graph: DisplayGraph::build(Arc::new(Topology::new(Vec::new()))),
             generation: TopologyGeneration::INITIAL,
+            surfaces: SurfaceManager::new(),
         }
+    }
+
+    /// The surface registry.
+    #[must_use]
+    pub const fn surfaces(&self) -> &SurfaceManager {
+        &self.surfaces
+    }
+
+    /// Registers a surface and associates it with a display.
+    ///
+    /// The association is `Initial`: there is no stored preference to honour
+    /// yet, so the surface lands on [`WindowManager::default_monitor`] and does
+    /// not acquire a preference from it. A caller restoring a saved arrangement
+    /// follows with [`WindowManager::assign`], which does.
+    ///
+    /// A surface may be registered before any topology has been observed. It is
+    /// then detached, which is a state the reveal sequence handles rather than
+    /// an error — startup does not have to serialise enumeration against surface
+    /// creation.
+    ///
+    /// # Errors
+    ///
+    /// [`WindowError::Surface`] if the identity is already registered.
+    pub fn register_surface(
+        &mut self,
+        surface: SurfaceId,
+    ) -> Result<Vec<WindowEvent>, WindowError> {
+        let window = self.surfaces.register(surface.clone())?.window();
+
+        let monitor = self.default_monitor_id();
+        self.surfaces
+            .associate(&surface, monitor.clone(), AssociationIntent::Fallback)?;
+
+        Ok(vec![
+            WindowEvent::SurfaceRegistered {
+                surface: surface.clone(),
+                window,
+            },
+            WindowEvent::SurfaceAssociated {
+                surface,
+                from: None,
+                to: monitor,
+                reason: AssociationReason::Initial,
+            },
+        ])
+    }
+
+    /// Assigns a surface to a display, and records that it belongs there.
+    ///
+    /// This is how a restored arrangement is applied. Unlike the fallback
+    /// associations made during a topology change, it sets the surface's
+    /// preferred display, so a later undock/redock cycle returns it here.
+    ///
+    /// # Errors
+    ///
+    /// [`WindowError::Surface`] if the surface is unknown, and
+    /// [`WindowError::MonitorNotAttached`] if the display is not attached.
+    pub fn assign(
+        &mut self,
+        surface: &SurfaceId,
+        monitor: &MonitorId,
+    ) -> Result<Vec<WindowEvent>, WindowError> {
+        if !self.is_attached(monitor) {
+            return Err(WindowError::MonitorNotAttached {
+                monitor: monitor.clone(),
+            });
+        }
+
+        let from = self.surfaces.associate(
+            surface,
+            Some(monitor.clone()),
+            AssociationIntent::Deliberate,
+        )?;
+
+        Ok(vec![WindowEvent::SurfaceAssociated {
+            surface: surface.clone(),
+            from,
+            to: Some(monitor.clone()),
+            reason: AssociationReason::Assigned,
+        }])
+    }
+
+    /// Removes a surface and retires its window.
+    ///
+    /// # Errors
+    ///
+    /// [`WindowError::Surface`] if the surface is not registered.
+    pub fn remove_surface(&mut self, surface: &SurfaceId) -> Result<Vec<WindowEvent>, WindowError> {
+        let record = self
+            .surfaces
+            .remove(surface)
+            .ok_or_else(|| SurfaceError::Unknown {
+                surface: surface.clone(),
+            })?;
+
+        Ok(vec![WindowEvent::SurfaceRemoved {
+            surface: surface.clone(),
+            window: record.window(),
+        }])
+    }
+
+    /// Re-associates every surface against the current topology.
+    ///
+    /// Three cases, in priority order:
+    ///
+    /// 1. **The preferred display is attached and the surface is elsewhere** —
+    ///    it goes home (`MonitorReturned`). This is what makes a dock/undock
+    ///    round trip return the desktop to where it started rather than eroding
+    ///    it one cycle at a time.
+    /// 2. **The current display is gone** — the surface falls back to the
+    ///    default (`MonitorRemoved`), or to nothing if no display is attached
+    ///    (`NoDisplaysAttached`). A fallback never overwrites the preference.
+    /// 3. **Otherwise** — nothing changes and no event is emitted. A topology
+    ///    change that does not affect a surface must not look like one that
+    ///    does, or every consumer re-does work for every unrelated display
+    ///    event.
+    fn reassociate_all(&mut self) -> Vec<WindowEvent> {
+        let default = self.default_monitor_id();
+        let mut events = Vec::new();
+
+        for id in self.surfaces.ids() {
+            let Some(record) = self.surfaces.get(&id) else {
+                continue;
+            };
+
+            let current = record.monitor().cloned();
+            let preferred = record.preferred_monitor().cloned();
+
+            let (target, reason) = match preferred {
+                // 1. Home is available.
+                Some(home) if self.is_attached(&home) => {
+                    if current.as_ref() == Some(&home) {
+                        continue;
+                    }
+                    (Some(home), AssociationReason::MonitorReturned)
+                }
+                // 2. Home is unavailable, or there is none.
+                _ => {
+                    let still_attached = current
+                        .as_ref()
+                        .is_some_and(|monitor| self.is_attached(monitor));
+                    if still_attached {
+                        continue;
+                    }
+                    let reason = if default.is_some() {
+                        AssociationReason::MonitorRemoved
+                    } else {
+                        AssociationReason::NoDisplaysAttached
+                    };
+                    (default.clone(), reason)
+                }
+            };
+
+            if current == target {
+                continue;
+            }
+
+            // A surface going home is honouring the caller's own choice, so the
+            // preference is reasserted rather than left to drift.
+            let intent = if reason == AssociationReason::MonitorReturned {
+                AssociationIntent::Deliberate
+            } else {
+                AssociationIntent::Fallback
+            };
+
+            if let Ok(from) = self.surfaces.associate(&id, target.clone(), intent) {
+                events.push(WindowEvent::SurfaceAssociated {
+                    surface: id,
+                    from,
+                    to: target,
+                    reason,
+                });
+            }
+        }
+
+        events
     }
 
     /// Adopts a topology transaction.
@@ -91,11 +288,18 @@ impl WindowManager {
         self.graph = Arc::clone(transaction.graph());
         self.generation = transaction.generation();
 
-        Ok(vec![WindowEvent::TopologyAdopted {
+        let mut events = vec![WindowEvent::TopologyAdopted {
             generation: self.generation,
             fingerprint: self.graph.fingerprint().clone(),
             monitors: self.graph.monitors().len(),
-        }])
+        }];
+
+        // Association happens after the graph is swapped, so every decision it
+        // makes is against the new desktop. Doing it before would associate
+        // against a topology the manager has already been told is gone.
+        events.append(&mut self.reassociate_all());
+
+        Ok(events)
     }
 
     /// The current spatial index.

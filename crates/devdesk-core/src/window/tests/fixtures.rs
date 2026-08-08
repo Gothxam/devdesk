@@ -7,6 +7,8 @@
 use devdesk_display::{MonitorDescriptor, SharedTopology, Topology};
 use devdesk_platform::{Connector, ConnectorKind, RawMonitorInfo, RawRect};
 
+use crate::window::SurfaceId;
+
 /// One display, fully identified.
 pub fn monitor(index: u32, serial: &str, x: i32, width: u32, primary: bool) -> MonitorDescriptor {
     let raw = RawMonitorInfo {
@@ -70,4 +72,8 @@ pub fn published(initial: Topology) -> SharedTopology {
     let shared = SharedTopology::new();
     shared.publish(initial);
     shared
+}
+
+pub fn surface(name: &str) -> SurfaceId {
+    SurfaceId::new(name).expect("a fixture surface id must be valid")
 }

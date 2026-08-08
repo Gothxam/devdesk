@@ -56,6 +56,18 @@ impl MonitorId {
     }
 }
 
+impl core::fmt::Display for MonitorId {
+    /// Renders the key.
+    ///
+    /// Safe to put in a diagnostic: the key is a device path, a manufacturer
+    /// serial, or a digest — hardware-identifying but carrying no user content.
+    /// It must not cross into a webview for the same reason (`SEC-15`), which is
+    /// a decision for the IPC layer rather than a property of this impl.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// How strongly two identities are believed to be the same display.
 ///
 /// Ordered, so a caller can require a floor: `confidence >= IdentityConfidence::Probable`.

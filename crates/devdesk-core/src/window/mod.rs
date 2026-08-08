@@ -20,10 +20,12 @@
 pub mod event;
 pub mod id;
 pub mod manager;
+pub mod surface;
 
-pub use event::WindowEvent;
+pub use event::{AssociationReason, WindowEvent};
 pub use id::{SurfaceId, WindowId, WindowIdAllocator};
-pub use manager::{ObserveError, WindowManager};
+pub use manager::{ObserveError, WindowError, WindowManager};
+pub use surface::{AssociationIntent, SurfaceError, SurfaceManager, SurfaceRecord};
 
 #[cfg(test)]
 mod tests;
