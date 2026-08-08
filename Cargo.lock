@@ -637,6 +637,10 @@ dependencies = [
 [[package]]
 name = "devdesk-platform"
 version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.20",
+ "windows",
+]
 
 [[package]]
 name = "devdesk-plugin-host"

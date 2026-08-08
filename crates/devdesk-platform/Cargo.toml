@@ -10,3 +10,17 @@ publish = false
 workspace = true
 
 [dependencies]
+thiserror = { workspace = true }
+
+# DR-6: the only crate in the workspace permitted to select an implementation by
+# target_os, and therefore the only one that may take an OS-specific dependency.
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+  "Win32_Devices_Display",
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Registry",
+  "Win32_UI_HiDpi",
+  "Win32_UI_WindowsAndMessaging",
+] }

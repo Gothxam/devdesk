@@ -10,6 +10,13 @@ The `PlatformBackend` trait and its per-OS implementations. The *only* crate per
 
 Policy decisions. It exposes capability; it does not decide when to use it.
 
+Display *meaning*. `enumerate_monitors` returns `RawMonitorInfo` — what the OS
+said, with the parts it declined to say left absent. Identity resolution,
+coordinate-space tagging, scale validation, and topology identity belong to
+`devdesk-display`, which sits above this crate (`ADR-0003` §4.1). Returning a
+`MonitorDescriptor` from here would invert that dependency and put display policy
+inside the OS shim.
+
 ## Entry points
 
 `src/lib.rs`. Nothing outside this crate may reach past its public API.

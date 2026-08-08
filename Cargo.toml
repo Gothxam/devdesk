@@ -21,6 +21,12 @@ specta-typescript = "0.0.9"
 tauri = { version = "2", features = ["isolation", "protocol-asset"] }
 tauri-specta = { version = "2.0.0-rc", features = ["derive", "typescript"] }
 thiserror = "2"
+# SEC-20: the Win32 bindings. Not written in-house — the alternative is
+# hand-declared `extern "system"` signatures for GDI, DisplayConfig, HiDpi, and
+# the message loop, where one wrong field width is a silent memory error rather
+# than a compile failure. Already in the tree transitively via tauri; declaring it
+# here adds no new transitive weight. Confined to devdesk-platform by DR-6.
+windows = "0.61"
 
 # RL-6b — the RS-1 lint set is declared here, not per crate. A crate cannot opt out.
 # EM-1 is only meaningful as an absolute (ADR-0001 RA-6).
