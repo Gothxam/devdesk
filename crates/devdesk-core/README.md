@@ -6,9 +6,20 @@
 
 The authoritative application state graph, actor supervision, the event bus, and transaction/journal semantics.
 
+### Window subsystem (`src/window/`)
+
+Surface lifecycle, monitor association, reveal state, and the window visibility
+commands the host executes. It is the core's single consumer of
+`devdesk-display` (`ADR-0004` `ARCH-1`) — nothing else in the window or layout
+path reaches back to the display crate or to a `PlatformBackend`.
+
 ## Does not own
 
 Any OS API call, any serialization format, any UI concept.
+
+Window placement. The window subsystem answers *which display* a surface belongs
+to; it computes no coordinate, size, or anchor, and it holds no snapping,
+z-order, or layer policy. That boundary is `ADR-0004` §4.3, moved up one layer.
 
 ## Entry points
 

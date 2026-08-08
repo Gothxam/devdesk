@@ -16,6 +16,9 @@ publish = false
 # tokio across crates produce link-time duplication that presents as trait mismatches.
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
+# Test-only across the workspace: asserting that what claims to be persistable
+# actually round-trips. Already present transitively via tauri.
+serde_json = "1"
 specta = { version = "2.0.0-rc", features = ["derive"] }
 specta-typescript = "0.0.9"
 tauri = { version = "2", features = ["isolation", "protocol-asset"] }
