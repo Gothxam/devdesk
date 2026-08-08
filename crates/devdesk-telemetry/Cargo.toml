@@ -1,0 +1,12 @@
+[package]
+name = "devdesk-telemetry"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]

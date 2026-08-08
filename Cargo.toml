@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 
-# Members are added in commit 3 (`chore: scaffold seven rust crates`). Cargo treats a
-# member glob that matches nothing as a hard error, so the globs cannot be declared
-# before `crates/` exists. See planning/SPRINT_1.md deviation D-1.
-members = []
+# `apps/*/src-tauri` is added in commit 5, when the binary crate exists. Cargo treats a
+# member glob that matches nothing as a hard error, so a glob cannot be declared before
+# its directory exists. See planning/SPRINT_1.md deviations D-1 and D-2.
+members = ["crates/*"]
 
 [workspace.package]
 edition = "2021"
