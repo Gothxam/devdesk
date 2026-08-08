@@ -1,0 +1,15 @@
+{
+  "rules": {
+    "declaration-property-value-disallowed-list": {
+      "/^backdrop-filter$/": ["/.*/"]
+    },
+    "color-no-hex": true,
+    "declaration-property-value-no-unknown": true
+  },
+  "overrides": [
+    {
+      "files": ["packages/effects/**/*.css"],
+      "rules": { "declaration-property-value-disallowed-list": null }
+    }
+  ]
+}
