@@ -1,0 +1,73 @@
+# DevDesk code ownership
+#
+# Derived from ADR-0003 §5.1, not authored independently (ADR-0003 A-7).
+# Every path in that ownership map has a rule here; a CI check asserts the
+# correspondence, because §5.1 is prose and this file is the enforced artifact
+# (ADR-0003 R-4).
+#
+# Later rules win in CODEOWNERS. Order below is general → specific.
+
+# ── Default ─────────────────────────────────────────────────────────────────
+*                                   @devdesk/lead-architect
+
+# ── Level 1 — Vision ────────────────────────────────────────────────────────
+# PROJECT_CONTEXT.md is FROZEN. It changes only by an accepted ADR (§0.6, §31.4).
+/PROJECT_CONTEXT.md                 @devdesk/lead-architect @devdesk/product
+/README.md                          @devdesk/lead-architect
+/governance/                        @devdesk/lead-architect
+/planning/                          @devdesk/product @devdesk/lead-architect
+
+# ── Level 2 — Architecture and specification ────────────────────────────────
+/docs/adr/                          @devdesk/lead-architect
+/docs/architecture/                 @devdesk/lead-architect
+/docs/api/                          @devdesk/core-engineering
+/docs/sdk/                          @devdesk/core-engineering
+/docs/product/                      @devdesk/product
+/docs/design/                       @devdesk/design @devdesk/lead-architect
+/docs/development/                  @devdesk/core-engineering
+
+# ── Research and agent context ──────────────────────────────────────────────
+/knowledge/                         @devdesk/core-engineering
+/.ai/                               @devdesk/lead-architect
+
+# ── Rust ────────────────────────────────────────────────────────────────────
+/crates/                            @devdesk/core-engineering
+/crates/devdesk-platform/           @devdesk/platform
+/crates/devdesk-telemetry/          @devdesk/core-engineering
+
+# ── TypeScript ──────────────────────────────────────────────────────────────
+/packages/                          @devdesk/core-engineering
+# DR-4: the public contract. An addition here is a permanent obligation.
+/packages/plugin-sdk/               @devdesk/lead-architect
+/packages/contracts/                @devdesk/lead-architect @devdesk/core-engineering
+# GEN-1: generated output. No human owner — CI regenerates and fails on diff.
+# Listed with no owner so a hand edit cannot be self-approved.
+/packages/*/src/generated/
+
+# ── Application ─────────────────────────────────────────────────────────────
+/apps/                              @devdesk/core-engineering
+
+# ── Security-owned — SEC-10 requires security sign-off on every change ──────
+/apps/*/src-tauri/capabilities/     @devdesk/security
+/apps/*/src-tauri/tauri.conf.json   @devdesk/security @devdesk/core-engineering
+/configs/                           @devdesk/security @devdesk/core-engineering
+
+# ── Content and tooling ─────────────────────────────────────────────────────
+/plugins/                           @devdesk/core-engineering
+/themes/                            @devdesk/design
+/assets/                            @devdesk/design
+/scripts/                           @devdesk/core-engineering
+/tools/                             @devdesk/core-engineering
+/tests/                             @devdesk/core-engineering
+/tests/security/                    @devdesk/security @devdesk/core-engineering
+/examples/                          @devdesk/core-engineering
+
+# ── Deliberately unowned ────────────────────────────────────────────────────
+# playground/ is experimental and never imported by production code (RL-9).
+/playground/
+
+# ── Repository operations ───────────────────────────────────────────────────
+/.github/                           @devdesk/lead-architect
+/Cargo.toml                         @devdesk/lead-architect @devdesk/core-engineering
+/pnpm-workspace.yaml                @devdesk/lead-architect @devdesk/core-engineering
+/rust-toolchain.toml                @devdesk/core-engineering
