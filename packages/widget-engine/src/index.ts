@@ -107,3 +107,13 @@ export {
   WidgetScheduler,
   cadenceOf,
 } from './scheduler';
+
+export {
+  type WidgetVisibility,
+  type SuspendSignals,
+  type SuspendPolicy,
+  WIDGET_VISIBILITIES,
+  SUSPEND_WHEN_UNSEEN,
+  NEVER_SUSPEND,
+  describeSuspendDecision,
+} from './visibility';

@@ -44,6 +44,11 @@ import { type UpdateCadence, type WidgetUpdateReason } from './definition';
 import { isUpdating, type WidgetPhase } from './lifecycle';
 import type { WidgetHost, InstanceSnapshot } from './host';
 import type { CancelTimer, TimerService } from './timer';
+import {
+  SUSPEND_WHEN_UNSEEN,
+  type SuspendPolicy,
+  type WidgetVisibility,
+} from './visibility';
 
 /** How the scheduler behaves. */
 export interface SchedulerOptions {
@@ -55,6 +60,15 @@ export interface SchedulerOptions {
    * requests coalesced into the next permitted flush rather than honoured.
    */
   readonly minIntervalMs?: number;
+
+  /**
+   * Decides whether a widget should be running.
+   *
+   * Defaults to {@link SUSPEND_WHEN_UNSEEN}. Applied on every visibility change
+   * and on every pass, so a widget whose display was unplugged stops on the next
+   * pass rather than waiting for something to notice.
+   */
+  readonly suspendPolicy?: SuspendPolicy;
 }
 
 /** What one flush pass did. */
@@ -85,6 +99,10 @@ export interface SchedulerMetrics {
   readonly skipped: number;
   /** Timers set. One per wake-up, not one per widget. */
   readonly wakeups: number;
+  /** Suspensions the policy decided on. */
+  readonly suspensions: number;
+  /** Resumptions the policy decided on. */
+  readonly resumptions: number;
 }
 
 /** One instance's schedule. */
@@ -95,6 +113,17 @@ interface Entry {
   nextIntervalAt: number;
   /** When it last ran, for throttling. */
   lastFlushAt: number;
+  /** Whether anyone can see it. Starts `pending`: placed, not yet revealed. */
+  visibility: WidgetVisibility;
+  /**
+   * Whether it was the policy that suspended this instance.
+   *
+   * The policy only reverses its own decisions. Without this, a caller that
+   * suspended a widget deliberately would find it resumed on the next pass by a
+   * policy that merely disagreed — and "never suspend" would mean "always
+   * resume", which is a different and much more surprising thing.
+   */
+  suspendedByPolicy: boolean;
 }
 
 const DEFAULT_MIN_INTERVAL_MS = 16;
@@ -109,6 +138,7 @@ export class WidgetScheduler<TState, TView> {
   readonly #host: WidgetHost<TState, TView>;
   readonly #timer: TimerService;
   readonly #minIntervalMs: number;
+  readonly #policy: SuspendPolicy;
   readonly #entries = new Map<WidgetInstanceId, Entry>();
 
   #cancel: CancelTimer | undefined;
@@ -121,6 +151,8 @@ export class WidgetScheduler<TState, TView> {
     throttled: 0,
     skipped: 0,
     wakeups: 0,
+    suspensions: 0,
+    resumptions: 0,
   };
 
   constructor(
@@ -131,6 +163,12 @@ export class WidgetScheduler<TState, TView> {
     this.#host = host;
     this.#timer = timer;
     this.#minIntervalMs = Math.max(0, options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS);
+    this.#policy = options.suspendPolicy ?? SUSPEND_WHEN_UNSEEN;
+  }
+
+  /** The policy deciding what runs. */
+  get suspendPolicy(): SuspendPolicy {
+    return this.#policy;
   }
 
   get metrics(): SchedulerMetrics {
@@ -185,6 +223,10 @@ export class WidgetScheduler<TState, TView> {
       // has never run, and making a widget wait a frame to appear is the flash
       // problem in a different costume.
       lastFlushAt: Number.NEGATIVE_INFINITY,
+      // Placed and not yet revealed. Entitled to run, because it has to paint
+      // before it can be revealed at all.
+      visibility: 'pending',
+      suspendedByPolicy: false,
     });
 
     this.rearm();
@@ -215,19 +257,29 @@ export class WidgetScheduler<TState, TView> {
   }
 
   /**
-   * Suspends an instance and stops scheduling it.
+   * Suspends an instance directly.
    *
-   * Goes through the scheduler rather than straight to the host because the
+   * **The policy will not undo this.** It reverses only its own decisions, so a
+   * widget suspended here stays suspended until {@link WidgetScheduler.resume}.
+   * A caller that wants a widget to stop *because nobody can see it* should use
+   * {@link WidgetScheduler.setVisibility} instead, which is the signal the
+   * policy reads and reverses when the widget becomes visible again.
+   *
+   * It goes through the scheduler rather than straight to the host because the
    * scheduler cannot observe a phase change: it holds one wake-up computed from
    * what is currently runnable, and a phase that moved underneath it would leave
-   * that wake-up wrong. Suspending directly on the host is not an error — the
-   * scheduler discovers it on the next pass and declines to run the widget — but
-   * resuming that way would leave it asleep, because nothing would re-arm.
+   * that wake-up wrong.
    */
   suspend(instanceId: WidgetInstanceId): boolean {
     const suspended = this.#host.suspend(instanceId).ok;
-    if (suspended) this.rearm();
-    return suspended;
+    if (!suspended) return false;
+
+    const entry = this.#entries.get(instanceId);
+    // Deliberate, so the policy will not undo it.
+    if (entry) entry.suspendedByPolicy = false;
+
+    this.rearm();
+    return true;
   }
 
   /**
@@ -236,16 +288,81 @@ export class WidgetScheduler<TState, TView> {
    * The host marks it dirty with `resumed`, because time passed while it was
    * not updating. Its cadence resumes from now rather than replaying every
    * interval that elapsed while it was away.
+   *
+   * Clears any policy suspension too, so a widget resumed deliberately is not
+   * immediately re-suspended by a policy that had been holding it.
    */
   resume(instanceId: WidgetInstanceId): boolean {
     const resumed = this.#host.resume(instanceId).ok;
     if (!resumed) return false;
 
     const entry = this.#entries.get(instanceId);
-    if (entry) entry.nextIntervalAt = dueAfter(entry.cadence, this.#timer.now());
+    if (entry) {
+      entry.suspendedByPolicy = false;
+      entry.nextIntervalAt = dueAfter(entry.cadence, this.#timer.now());
+    }
 
     this.rearm();
     return true;
+  }
+
+  /**
+   * Records that an instance's surface is on screen, off screen, or waiting.
+   *
+   * Applies the suspend policy immediately: a widget that just went off screen
+   * stops now rather than at the next pass, and one that came back starts now
+   * rather than after up to a full cadence of nothing.
+   */
+  setVisibility(instanceId: WidgetInstanceId, visibility: WidgetVisibility): boolean {
+    const entry = this.#entries.get(instanceId);
+    if (!entry) return false;
+
+    entry.visibility = visibility;
+    this.applyPolicy(instanceId);
+    this.rearm();
+    return true;
+  }
+
+  /** What the scheduler believes about an instance's visibility. */
+  visibilityOf(instanceId: WidgetInstanceId): WidgetVisibility | undefined {
+    return this.#entries.get(instanceId)?.visibility;
+  }
+
+  /**
+   * Applies the suspend policy to one instance.
+   *
+   * The policy decides; this carries out the decision through the lifecycle, so
+   * a policy-driven suspension is indistinguishable from a deliberate one and
+   * every invariant the state machine holds still holds.
+   */
+  private applyPolicy(instanceId: WidgetInstanceId): void {
+    const entry = this.#entries.get(instanceId);
+    const snapshot = this.#host.snapshot(instanceId);
+    if (!entry || !snapshot) return;
+
+    const shouldSuspend = this.#policy.shouldSuspend({
+      visibility: entry.visibility,
+      hasDisplay: snapshot.monitorId !== undefined,
+      phase: snapshot.phase,
+    });
+
+    if (shouldSuspend && snapshot.phase === 'running') {
+      if (this.#host.suspend(instanceId).ok) {
+        entry.suspendedByPolicy = true;
+        this.#metrics = { ...this.#metrics, suspensions: this.#metrics.suspensions + 1 };
+      }
+      return;
+    }
+
+    // Only its own decisions are reversed. A widget suspended by its caller
+    // stays suspended until that caller resumes it.
+    if (!shouldSuspend && snapshot.phase === 'suspended' && entry.suspendedByPolicy) {
+      if (this.#host.resume(instanceId).ok) {
+        entry.suspendedByPolicy = false;
+        entry.nextIntervalAt = dueAfter(entry.cadence, this.#timer.now());
+        this.#metrics = { ...this.#metrics, resumptions: this.#metrics.resumptions + 1 };
+      }
+    }
   }
 
   /** Records one cause against many instances — a theme change, typically. */
@@ -276,13 +393,19 @@ export class WidgetScheduler<TState, TView> {
       const entry = this.#entries.get(instanceId);
       if (!entry) continue;
 
-      const snapshot = this.#host.snapshot(instanceId);
-      if (!snapshot) {
+      if (!this.#host.snapshot(instanceId)) {
         // The instance went away without being unregistered. Tidy up rather
         // than carry a schedule for something that no longer exists.
         this.#entries.delete(instanceId);
         continue;
       }
+
+      // Re-decided every pass, so a display unplugged between passes stops the
+      // widget without anything having to observe the topology change.
+      this.applyPolicy(instanceId);
+
+      const snapshot = this.#host.snapshot(instanceId);
+      if (!snapshot) continue;
 
       const intervalDue = at >= entry.nextIntervalAt;
       if (intervalDue && canRun(snapshot.phase)) {

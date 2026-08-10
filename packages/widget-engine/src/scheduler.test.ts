@@ -13,6 +13,7 @@ import { everyMs, NO_CADENCE, type WidgetDefinition, type WidgetUpdate } from '.
 import { WidgetHost } from './host';
 import { createWidgetRegistry } from './registry';
 import { WidgetScheduler } from './scheduler';
+import { SUSPEND_WHEN_UNSEEN, type SuspendPolicy } from './visibility';
 import { createManualTimer, type ManualTimer } from './timer';
 
 const CLOCK = 'devdesk.clock';
@@ -88,7 +89,11 @@ interface World {
   readonly definition: Recorder;
 }
 
-function world(definition = recorder(), minIntervalMs?: number): World {
+function world(
+  definition = recorder(),
+  minIntervalMs?: number,
+  policy: SuspendPolicy = SUSPEND_WHEN_UNSEEN,
+): World {
   const registered = createWidgetRegistry().register(MANIFEST);
   if (!registered.ok) throw new Error('fixture');
 
@@ -97,10 +102,13 @@ function world(definition = recorder(), minIntervalMs?: number): World {
   if (!defined.ok) throw new Error('fixture');
 
   const timer = createManualTimer();
+  // The real default. It does not fight a deliberate suspension — it reverses
+  // only its own decisions — so these tests can suspend and expect it to stick.
+  // The policy's own behaviour has a separate suite.
   const scheduler = new WidgetScheduler(
     host,
     timer,
-    minIntervalMs === undefined ? {} : { minIntervalMs },
+    minIntervalMs === undefined ? { suspendPolicy: policy } : { minIntervalMs, suspendPolicy: policy },
   );
 
   return { host, scheduler, timer, definition };
