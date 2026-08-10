@@ -92,3 +92,18 @@ export {
   WidgetHost,
   describeHostError,
 } from './host';
+
+export {
+  type TimerService,
+  type ManualTimer,
+  type CancelTimer,
+  createManualTimer,
+} from './timer';
+
+export {
+  type SchedulerOptions,
+  type FlushReport,
+  type SchedulerMetrics,
+  WidgetScheduler,
+  cadenceOf,
+} from './scheduler';
