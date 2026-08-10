@@ -366,7 +366,14 @@ export class WidgetHost<TView = unknown> {
     const advanced = this.advance(live, event);
     if (!advanced.ok) return err(advanced.error);
 
-    if (announce) live.channel.publish(announce);
+    if (announce) {
+      // The widget's own hook first, then anything else that subscribed. A
+      // widget must hear about its own suspension without having to subscribe
+      // to a channel in `create` — `onEvent` is the hook, and skipping it here
+      // would make it mean "some events" rather than "events".
+      if (live.context) live.instance?.onEvent?.(announce, live.context);
+      live.channel.publish(announce);
+    }
 
     return ok(this.snapshot(instanceId) as InstanceSnapshot);
   }
