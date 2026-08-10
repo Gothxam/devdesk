@@ -76,3 +76,20 @@ export {
   surfacesAt,
   hitTest,
 } from './scene';
+
+export {
+  type OcclusionResult,
+  cullOccluded,
+  isOccluded,
+} from './occlusion';
+
+export {
+  type Invalidation,
+  type SurfaceInvalidation,
+  type InvalidationReason,
+  INVALIDATION_REASONS,
+  NO_INVALIDATION,
+  invalidate,
+  needsRepaint,
+  mergeInvalidations,
+} from './invalidation';
