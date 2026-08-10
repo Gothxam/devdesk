@@ -23,7 +23,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use devdesk_display::diff::TopologyDiff;
 use devdesk_display::graph::{Direction, DisplayGraph};
@@ -33,12 +33,10 @@ use devdesk_display::transaction::SharedTopology;
 use devdesk_display::PhysicalPoint;
 use devdesk_platform::{Connector, ConnectorKind, PlatformFeature, RawMonitorInfo, RawRect};
 
-/// MM-11: iterations per run, after the discarded warm-ups.
-const ITERATIONS: usize = 20;
-/// MM-11: warm-up iterations, discarded.
-const WARM_UPS: usize = 3;
-/// MM-12: independent runs, of whose medians the median is reported.
-const RUNS: usize = 3;
+#[path = "harness.rs"]
+mod harness;
+
+use harness::{measure, preamble};
 
 /// The ADR-0002 §6.1 reference display set: 2560×1440 @ 100%, 1920×1080 @ 100%,
 /// 3840×2160 @ 150%. Mixed DPI is mandatory (`TS-5`, WD-2) — a uniform-DPI
@@ -96,80 +94,6 @@ fn raw(
     }
 }
 
-/// One measured operation's timings, in nanoseconds per operation.
-struct Measurement {
-    label: &'static str,
-    median: f64,
-    p95: f64,
-    min: f64,
-}
-
-impl Measurement {
-    fn report(&self) {
-        println!(
-            "  {:<44} median {:>10.3} µs   p95 {:>10.3} µs   min {:>10.3} µs",
-            self.label,
-            self.median / 1000.0,
-            self.p95 / 1000.0,
-            self.min / 1000.0
-        );
-    }
-}
-
-/// Measures one operation under the ADR-0002 §8.5 method.
-///
-/// `batch` is how many operations one iteration performs. Sub-microsecond
-/// operations are timed in batches because the clock's resolution is a
-/// meaningful fraction of the thing being measured, and a per-operation timing
-/// would report the timer.
-fn measure(label: &'static str, batch: usize, mut operation: impl FnMut()) -> Measurement {
-    let mut run_medians = Vec::with_capacity(RUNS);
-    let mut all_samples = Vec::with_capacity(RUNS * ITERATIONS);
-
-    for _ in 0..RUNS {
-        for _ in 0..WARM_UPS {
-            for _ in 0..batch {
-                operation();
-            }
-        }
-
-        let mut samples = Vec::with_capacity(ITERATIONS);
-        for _ in 0..ITERATIONS {
-            let started = Instant::now();
-            for _ in 0..batch {
-                operation();
-            }
-            let elapsed = started.elapsed();
-            #[allow(clippy::cast_precision_loss)]
-            samples.push(elapsed.as_nanos() as f64 / batch as f64);
-        }
-
-        all_samples.extend(samples.iter().copied());
-        run_medians.push(percentile(&mut samples, 0.5));
-    }
-
-    Measurement {
-        label,
-        median: percentile(&mut run_medians, 0.5),
-        p95: percentile(&mut all_samples, 0.95),
-        min: all_samples.iter().copied().fold(f64::INFINITY, f64::min),
-    }
-}
-
-fn percentile(samples: &mut [f64], quantile: f64) -> f64 {
-    samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    if samples.is_empty() {
-        return 0.0;
-    }
-    #[allow(
-        clippy::cast_precision_loss,
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss
-    )]
-    let index = ((samples.len() as f64 - 1.0) * quantile).round() as usize;
-    samples[index.min(samples.len() - 1)]
-}
-
 #[test]
 fn topology_change_costs_what_the_display_subsystem_can_account_for() {
     let docked = Topology::new(reference_displays());
@@ -185,14 +109,10 @@ fn topology_change_costs_what_the_display_subsystem_can_account_for() {
     let reader = SharedTopology::new();
     reader.publish(docked.clone());
 
-    println!(
-        "\nPB-G7 — display subsystem share, {} displays, mixed DPI",
+    preamble(&format!(
+        "PB-G7 — display subsystem share, {} displays, mixed DPI",
         docked.monitors().len()
-    );
-    println!("  informational only: not the ADR-0002 §6.1 reference machine (D-2, MM-1)");
-    println!(
-        "  method: {RUNS} runs × ({WARM_UPS} discarded warm-ups + {ITERATIONS} iterations), MM-11/MM-12\n"
-    );
+    ));
 
     let measurements = vec![
         measure("fingerprint (persisted layout key)", 200, || {
@@ -291,8 +211,7 @@ fn enumeration_from_the_real_platform_is_measured_where_it_exists() {
         },
     );
 
-    println!("\nPB-G7 — the re-query step, against this machine's displays");
-    println!("  informational only: not the ADR-0002 §6.1 reference machine (D-2, MM-1)\n");
+    preamble("PB-G7 — the re-query step, against this machine's displays");
     measurement.report();
     println!();
 

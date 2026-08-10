@@ -36,3 +36,7 @@ path = "../../tests/integration/window_recovery.rs"
 [[test]]
 name = "window_properties"
 path = "../../tests/integration/window_properties.rs"
+
+[[test]]
+name = "window_bench"
+path = "../../tests/perf/window.bench.rs"
