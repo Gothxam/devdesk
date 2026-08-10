@@ -9,7 +9,7 @@ import { fallbackSnapshot, type ThemeSnapshot } from '@devdesk/theme-engine';
 import { describe, expect, it } from 'vitest';
 
 import type { WidgetContext } from './context';
-import type { WidgetDefinition } from './definition';
+import { NO_CADENCE, type WidgetDefinition } from './definition';
 import type { WidgetEvent } from './events';
 import { WidgetHost } from './host';
 import { createWidgetRegistry } from './registry';
@@ -56,21 +56,19 @@ interface Journal {
   readonly contexts: WidgetContext[];
 }
 
-function probe(journal: Journal): WidgetDefinition<string> {
+function probe(journal: Journal): WidgetDefinition<number, string> {
   return {
     id: id(CLOCK),
-    create(context) {
+    cadence: NO_CADENCE,
+    initialize(context) {
       journal.contexts.push(context);
       context.events.subscribe((event) => journal.events.push(event));
-      return {
-        render(current) {
-          journal.themesAtRender.push(current.theme.metadata.mode);
-          return current.theme.metadata.mode;
-        },
-        onEvent(event) {
-          journal.events.push(event);
-        },
-      };
+      return 0;
+    },
+    update: (state) => state + 1,
+    render(_state, context) {
+      journal.themesAtRender.push(context.theme.metadata.mode);
+      return context.theme.metadata.mode;
     },
   };
 }
@@ -80,19 +78,24 @@ function scenario(theme: ThemeSnapshot = fallbackSnapshot('dark')) {
   if (!registered.ok) throw new Error('fixture');
 
   const journal: Journal = { events: [], themesAtRender: [], contexts: [] };
-  const host = new WidgetHost<string>(registered.value, theme);
+  const host = new WidgetHost<number, string>(registered.value, theme);
   const defined = host.define(probe(journal));
   if (!defined.ok) throw new Error('fixture');
 
   return { host, journal };
 }
 
-function attachRunning(host: WidgetHost<string>, ordinal: number, display = 'unit:SN-LAPTOP') {
+function attachRunning(
+  host: WidgetHost<number, string>,
+  ordinal: number,
+  display = 'unit:SN-LAPTOP',
+) {
   host.create(instance(ordinal));
-  host.attach(instance(ordinal), {
-    surfaceId: surface(`surface-${ordinal}`),
-    monitorId: monitor(display),
-  });
+  host.attach(
+    instance(ordinal),
+    { surfaceId: surface(`surface-${ordinal}`), monitorId: monitor(display) },
+    1_000,
+  );
   host.start(instance(ordinal));
 }
 
@@ -106,7 +109,7 @@ describe('applyTheme', () => {
     const view = host.render(instance(1));
     expect(view.ok && view.value).toBe('light');
     expect(host.contextOf(instance(1))?.theme.metadata.mode).toBe('light');
-    expect(journal.events.filter((event) => event.kind === 'theme-changed')).toHaveLength(2);
+    expect(journal.events.filter((event) => event.kind === 'theme-changed')).toHaveLength(1);
   });
 
   it('replaces the context rather than mutating it', () => {
@@ -196,22 +199,25 @@ describe('applyTheme', () => {
     const registered = createWidgetRegistry().register(MANIFEST);
     if (!registered.ok) throw new Error('fixture');
 
-    const host = new WidgetHost<string>(registered.value, fallbackSnapshot('dark'));
+    const host = new WidgetHost<number, string>(registered.value, fallbackSnapshot('dark'));
     const defined = host.define({
       id: id(CLOCK),
-      create(context) {
+      cadence: NO_CADENCE,
+      initialize(context) {
         context.events.subscribe(() => {
           throw new Error('bad handler');
         });
-        return { render: () => context.theme.metadata.mode };
+        return 0;
       },
+      update: (state) => state,
+      render: (_state, context) => context.theme.metadata.mode,
     });
     if (!defined.ok) throw new Error('fixture');
 
     for (const ordinal of [1, 2]) attachRunning(host, ordinal);
-    const delivery = host.applyTheme(fallbackSnapshot('light'));
+    const affected = host.applyTheme(fallbackSnapshot('light'));
 
-    expect(delivery.failures).toHaveLength(2);
+    expect(affected).toHaveLength(2);
     // Both still got the new theme: the failure was in their listener, not in
     // the propagation.
     expect(host.contextOf(instance(1))?.theme.metadata.mode).toBe('light');
@@ -242,7 +248,7 @@ describe('moveToMonitor', () => {
     host.moveToMonitor(instance(1), monitor('unit:SN-EXTERNAL'));
 
     expect(host.contextOf(instance(2))?.monitorId).toBe('unit:SN-LAPTOP');
-    expect(journal.events).toHaveLength(2); // listener + onEvent, for instance 1 only
+    expect(journal.events).toHaveLength(1); // instance 1 only
   });
 
   it('can clear the display', () => {

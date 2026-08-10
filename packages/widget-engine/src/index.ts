@@ -64,7 +64,17 @@ export {
   createEventChannel,
 } from './events';
 
-export { type WidgetDefinition, type WidgetInstance } from './definition';
+export {
+  type WidgetDefinition,
+  type WidgetUpdate,
+  type WidgetUpdateReason,
+  type UpdateCadence,
+  WIDGET_UPDATE_REASONS,
+  NO_CADENCE,
+  everyMs,
+  hasReason,
+  createUpdate,
+} from './definition';
 
 export {
   type SurfacePort,
@@ -78,7 +88,7 @@ export {
   type SurfacePlacement,
   type HostError,
   type InstanceSnapshot,
-  type HostDelivery,
+  type FlushOutcome,
   WidgetHost,
   describeHostError,
 } from './host';

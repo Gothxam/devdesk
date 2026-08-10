@@ -39,7 +39,7 @@ import {
 import { monitorId } from '@devdesk/contracts';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { createClockWidget, type ClockInstance, type ClockView } from './clock/clock';
+import { CLOCK_CADENCE_MS, CLOCK_WIDGET, type ClockState, type ClockView } from './clock/clock';
 import { CLOCK_MANIFEST } from './clock/manifest';
 
 // ------------------------------------------------------------- fixtures --
@@ -90,37 +90,49 @@ class FakeCore implements SurfacePort {
   }
 }
 
-/** A time source the test moves by hand. */
-function clockAt(start: string) {
-  let current = new Date(start);
+/**
+ * The runtime's clock, moved by hand.
+ *
+ * The widget never reads a clock — every update is handed `at` — so a test
+ * advancing time is a test choosing what to pass. No waiting, no fake timers,
+ * no flake (`TS-6`).
+ */
+function runtimeClock(startIso: string) {
+  let now = new Date(startIso).getTime();
   return {
-    now: () => current,
+    now: () => now,
     advance(minutes: number) {
-      current = new Date(current.getTime() + minutes * 60_000);
+      now += minutes * 60_000;
     },
   };
 }
 
 interface Harness {
-  readonly host: WidgetHost<ClockView>;
-  readonly binder: WidgetSurfaceBinder<ClockView>;
+  readonly host: WidgetHost<ClockState, ClockView>;
+  readonly binder: WidgetSurfaceBinder<ClockState, ClockView>;
   readonly core: FakeCore;
-  readonly time: ReturnType<typeof clockAt>;
+  readonly time: ReturnType<typeof runtimeClock>;
 }
 
 function harness(): Harness {
-  const time = clockAt('2026-08-08T09:05:00');
+  const time = runtimeClock('2026-08-08T09:05:00');
 
   // The manifest goes through the same validation a third-party bundle does.
   const registered = createWidgetRegistry().register(CLOCK_MANIFEST);
   if (!registered.ok) throw new Error('the clock manifest must be valid');
 
-  const host = new WidgetHost<ClockView>(registered.value, fallbackSnapshot('dark'));
-  const defined = host.define(createClockWidget({ now: time.now }));
+  const host = new WidgetHost<ClockState, ClockView>(registered.value, fallbackSnapshot('dark'));
+  const defined = host.define(CLOCK_WIDGET);
   if (!defined.ok) throw new Error('the clock definition must be accepted');
 
   const core = new FakeCore();
   return { host, binder: new WidgetSurfaceBinder(host, core), core, time };
+}
+
+/** Marks an instance dirty for its cadence and runs the update. */
+function tick(ordinal = 1) {
+  world.host.markDirty(instance(ordinal), 'interval');
+  world.host.flush(instance(ordinal), world.time.now());
 }
 
 let world: Harness;
@@ -153,7 +165,7 @@ describe('the manifest', () => {
 
 describe('create', () => {
   it('walks the lifecycle in order and stops short of visible', () => {
-    return world.binder.place(instance(1)).then((placed) => {
+    return world.binder.place(instance(1), world.time.now()).then((placed) => {
       expect(placed.ok).toBe(true);
       if (!placed.ok) return;
 
@@ -165,14 +177,14 @@ describe('create', () => {
   });
 
   it('renders the injected time, not the wall clock', async () => {
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     expect(view().time).toBe('09:05');
     expect(view().date).toBe('Sat 8 Aug');
   });
 
   it('reads its colours from the theme', async () => {
     // The widget never chooses a colour; it asks the resolved theme.
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     expect(view().accent).toBe('#7aa2ff');
     expect(view().foreground).toBe('#f2f4f8');
   });
@@ -182,7 +194,7 @@ describe('reveal', () => {
   it('reveals only after the shell says it painted', async () => {
     // AC-FRE-1.1, end to end: the runtime cannot observe a frame and does not
     // pretend to.
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     expect(world.core.revealed.size).toBe(0);
 
     await world.binder.reportPainted(instance(1));
@@ -195,7 +207,7 @@ describe('reveal', () => {
   });
 
   it('never reveals a widget that was removed before it painted', async () => {
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     await world.binder.remove(instance(1));
 
     const late = await world.binder.reportPainted(instance(1));
@@ -206,7 +218,7 @@ describe('reveal', () => {
 
 describe('theme switch', () => {
   it('reaches a running widget and changes what it renders', async () => {
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     expect(view().accent).toBe('#7aa2ff');
 
     world.host.applyTheme(fallbackSnapshot('light'));
@@ -216,7 +228,7 @@ describe('theme switch', () => {
   });
 
   it('reaches every placed widget at once', async () => {
-    for (const ordinal of [1, 2, 3]) await world.binder.place(instance(ordinal));
+    for (const ordinal of [1, 2, 3]) await world.binder.place(instance(ordinal), world.time.now());
 
     world.host.applyTheme(fallbackSnapshot('light'));
 
@@ -226,14 +238,14 @@ describe('theme switch', () => {
   });
 
   it('does not disturb the time', async () => {
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     world.host.applyTheme(fallbackSnapshot('light'));
 
     expect(view().time).toBe('09:05');
   });
 
   it('reaches a suspended widget, so resuming does not repaint in old colours', async () => {
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     world.host.suspend(instance(1));
 
     world.host.applyTheme(fallbackSnapshot('light'));
@@ -247,7 +259,7 @@ describe('display change', () => {
   it('tells a widget its display went away, and it keeps working', async () => {
     // A closed lid is a real state. The clock still knows the time; the shell
     // decides what that should look like.
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     expect(view().hasDisplay).toBe(true);
 
     world.host.moveToMonitor(instance(1), undefined);
@@ -257,7 +269,7 @@ describe('display change', () => {
   });
 
   it('tells a widget it moved to another display', async () => {
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     world.host.moveToMonitor(instance(1), monitor('unit:SN-EXTERNAL'));
 
     expect(world.host.contextOf(instance(1))?.monitorId).toBe('unit:SN-EXTERNAL');
@@ -265,8 +277,8 @@ describe('display change', () => {
   });
 
   it('leaves the widgets that did not move alone', async () => {
-    await world.binder.place(instance(1));
-    await world.binder.place(instance(2));
+    await world.binder.place(instance(1), world.time.now());
+    await world.binder.place(instance(2), world.time.now());
 
     world.host.moveToMonitor(instance(1), undefined);
 
@@ -276,15 +288,22 @@ describe('display change', () => {
 });
 
 describe('suspend and resume', () => {
-  it('stops the clock catching up until it resumes', async () => {
-    await world.binder.place(instance(1));
-    world.host.suspend(instance(1));
+  it('leaves the clock stale while suspended, and catches it up on resume', async () => {
+    await world.binder.place(instance(1), world.time.now());
+    world.host.flush(instance(1), world.time.now());
 
+    world.host.suspend(instance(1));
     world.time.advance(45);
-    // Suspended: nothing told it to tick, so it still shows the old time.
+
+    // Suspended: the scheduler will not flush it, so it shows the old time.
     expect(view().time).toBe('09:05');
 
+    // Resuming marks it dirty with `resumed`, because time passed while it was
+    // not updating and whatever it shows is stale by definition.
     world.host.resume(instance(1));
+    expect(world.host.pendingReasons(instance(1))).toEqual(['resumed']);
+
+    world.host.flush(instance(1), world.time.now());
     expect(view().time).toBe('09:50');
   });
 
@@ -294,56 +313,110 @@ describe('suspend and resume', () => {
   });
 });
 
-describe('ticking', () => {
-  it('advances only when asked, and never on its own', async () => {
+describe('cadence', () => {
+  it('advances only when the runtime updates it, never on its own', () => {
     // The widget owns no timer. @devdesk/animation owns RAF (§6.2.2), and a
-    // widget with its own setInterval is the ad-hoc animation that package
-    // exists to prevent. Driven directly here, because `tick` belongs to
-    // whoever renders rather than to the runtime.
-    const time = clockAt('2026-08-08T09:05:00');
-    const definition = createClockWidget({ now: time.now });
-
-    const widget = widgetId('devdesk.clock');
-    const surface = surfaceId('devdesk.clock#1');
-    if (!widget.ok || !surface.ok) throw new Error('fixture');
-
+    // widget with its own setInterval would keep running while hidden, while
+    // suspended, and while its display was unplugged — spending B-4's idle
+    // budget in code nobody could see.
+    const at = new Date('2026-08-08T09:05:00').getTime();
     const context = createWidgetContext({
-      widgetId: widget.value,
+      widgetId: CLOCK_WIDGET.id,
       instanceId: instance(1),
-      surfaceId: surface.value,
+      surfaceId: (() => {
+        const parsed = surfaceId('devdesk.clock#1');
+        if (!parsed.ok) throw new Error('fixture');
+        return parsed.value;
+      })(),
       monitorId: monitor('unit:SN-LAPTOP'),
       theme: fallbackSnapshot('dark'),
       events: createEventChannel(),
     });
 
-    const clock = definition.create(context) as ClockInstance;
-    expect(clock.render(context).time).toBe('09:05');
+    const initial = CLOCK_WIDGET.initialize(context, at);
+    expect(CLOCK_WIDGET.render(initial, context).time).toBe('09:05');
 
-    time.advance(10);
-    expect(clock.render(context).time, 'no tick, no change').toBe('09:05');
+    // Ten minutes of wall time and no update: nothing changes, because nothing
+    // asked the widget anything.
+    expect(CLOCK_WIDGET.render(initial, context).time).toBe('09:05');
 
-    clock.tick();
-    expect(clock.render(context).time).toBe('09:15');
+    const later = CLOCK_WIDGET.update(
+      initial,
+      { reasons: ['interval'], at: at + 10 * 60_000 },
+      context,
+    );
+    expect(CLOCK_WIDGET.render(later, context).time).toBe('09:15');
   });
 
-  it('renders the same time twice between ticks', async () => {
-    // The host reserves the right to call render more than once for one change.
-    // A widget that read the clock inside render would drift between two calls
-    // that describe one moment.
-    await world.binder.place(instance(1));
-    world.time.advance(7);
+  it('declares a cadence the runtime can read without holding the definition', async () => {
+    await world.binder.place(instance(1), world.time.now());
+    expect(world.host.snapshot(instance(1))?.cadence).toEqual({
+      kind: 'interval',
+      everyMs: CLOCK_CADENCE_MS,
+    });
+  });
 
-    expect(view().time).toBe(view().time);
-    expect(view().time).toBe('09:05');
+  it('is pure: the same state, update, and context give the same view', () => {
+    const at = 1_000;
+    const context = world.host.contextOf(instance(1));
+    expect(context).toBeUndefined();
+
+    // Asserted against the definition directly, because purity is a property of
+    // the functions rather than of the host that calls them.
+    const built = createWidgetContext({
+      widgetId: CLOCK_WIDGET.id,
+      instanceId: instance(1),
+      surfaceId: (() => {
+        const parsed = surfaceId('devdesk.clock#1');
+        if (!parsed.ok) throw new Error('fixture');
+        return parsed.value;
+      })(),
+      monitorId: undefined,
+      theme: fallbackSnapshot('dark'),
+      events: createEventChannel(),
+    });
+
+    const state = CLOCK_WIDGET.initialize(built, at);
+    const update = { reasons: ['interval'] as const, at: at + 5_000 };
+
+    expect(CLOCK_WIDGET.update(state, update, built)).toEqual(
+      CLOCK_WIDGET.update(state, update, built),
+    );
+    expect(CLOCK_WIDGET.render(state, built)).toEqual(CLOCK_WIDGET.render(state, built));
+  });
+
+  it('returns its own state when nothing moved time', () => {
+    // Returning the same object tells the runtime to skip the render.
+    const context = createWidgetContext({
+      widgetId: CLOCK_WIDGET.id,
+      instanceId: instance(1),
+      surfaceId: (() => {
+        const parsed = surfaceId('devdesk.clock#1');
+        if (!parsed.ok) throw new Error('fixture');
+        return parsed.value;
+      })(),
+      monitorId: undefined,
+      theme: fallbackSnapshot('dark'),
+      events: createEventChannel(),
+    });
+
+    const state = CLOCK_WIDGET.initialize(context, 1_000);
+    const unchanged = CLOCK_WIDGET.update(
+      state,
+      { reasons: ['theme-changed'], at: 9_999 },
+      context,
+    );
+
+    expect(unchanged).toBe(state);
   });
 });
 
 describe('attach and detach', () => {
   it('moves a widget to another surface and keeps it running', async () => {
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     world.core.calls.length = 0;
 
-    const moved = await world.binder.moveToNewSurface(instance(1));
+    const moved = await world.binder.moveToNewSurface(instance(1), world.time.now());
     expect(moved.ok).toBe(true);
     if (moved.ok) expect(moved.value.phase).toBe('running');
 
@@ -354,18 +427,19 @@ describe('attach and detach', () => {
     ]);
   });
 
-  it('rebuilds the widget on the new surface', async () => {
-    await world.binder.place(instance(1));
+  it('reinitialises the widget on the new surface', async () => {
+    await world.binder.place(instance(1), world.time.now());
     world.time.advance(30);
 
-    await world.binder.moveToNewSurface(instance(1));
+    await world.binder.moveToNewSurface(instance(1), world.time.now());
 
-    // A fresh instance read the clock again: the widget was rebuilt, not moved.
+    // Initialised afresh with the runtime clock: the state was discarded with
+    // the context it was computed against, not carried over.
     expect(view().time).toBe('09:35');
   });
 
   it('cannot be rendered while detached', async () => {
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     world.host.detach(instance(1));
 
     expect(world.host.render(instance(1)).ok).toBe(false);
@@ -374,7 +448,7 @@ describe('attach and detach', () => {
 
 describe('destroy', () => {
   it('removes the widget and its window', async () => {
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     await world.binder.reportPainted(instance(1));
 
     const removed = await world.binder.remove(instance(1));
@@ -389,7 +463,7 @@ describe('destroy', () => {
   });
 
   it('leaves the other widgets alone', async () => {
-    for (const ordinal of [1, 2]) await world.binder.place(instance(ordinal));
+    for (const ordinal of [1, 2]) await world.binder.place(instance(ordinal), world.time.now());
 
     await world.binder.remove(instance(1));
 
@@ -400,10 +474,10 @@ describe('destroy', () => {
   it('lets the same identity be placed again', async () => {
     // The identity persists across a restart, so re-placing it must work — that
     // is what restoring an arrangement does.
-    await world.binder.place(instance(1));
+    await world.binder.place(instance(1), world.time.now());
     await world.binder.remove(instance(1));
 
-    const again = await world.binder.place(instance(1));
+    const again = await world.binder.place(instance(1), world.time.now());
     expect(again.ok).toBe(true);
     if (again.ok) expect(again.value.phase).toBe('running');
   });
@@ -412,7 +486,7 @@ describe('destroy', () => {
 describe('lifecycle ordering', () => {
   it('never reveals before creating, and never after destroying', async () => {
     for (const ordinal of [1, 2, 3]) {
-      await world.binder.place(instance(ordinal));
+      await world.binder.place(instance(ordinal), world.time.now());
       await world.binder.reportPainted(instance(ordinal));
     }
     for (const ordinal of [1, 2, 3]) {

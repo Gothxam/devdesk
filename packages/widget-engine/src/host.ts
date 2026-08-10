@@ -6,39 +6,39 @@
  *
  * ```text
  *  registry ─┐
- *  theme ────┼──▶ WidgetHost ──context──▶ widget instance
+ *  theme ────┼──▶ WidgetHost ──context + update──▶ pure widget ──▶ view
  *  surfaces ─┘         │
- *                      └── lifecycle, events, teardown
+ *                      └── lifecycle, state, coalescing, teardown
  * ```
  *
  * ## What this buys
  *
- * A widget cannot reach `WindowManager`, the platform, or another widget,
- * because it is never handed anything that could. `create` receives a
- * {@link WidgetContext} and nothing else, the context holds no host reference,
- * and this module exports no singleton for a widget to import. The restriction
- * is structural, so violating it requires a change a reviewer would see rather
- * than a call nobody notices.
+ * A widget cannot reach `WindowManager`, the platform, a clock, or another
+ * widget, because it is never handed anything that could. Its three functions
+ * receive a context, a state, and an update; none of those holds a host
+ * reference, and this module exports no singleton for a widget to import.
  *
- * ## Theme is pushed, not pulled
+ * ## The host does not decide *when*
  *
- * The host holds the current {@link ThemeSnapshot} and rebuilds every attached
- * widget's context when it changes. A widget never asks for the theme, so it
- * cannot ask at the wrong moment and get a half-applied one — the snapshot it
- * holds was resolved before it ever saw it.
+ * It records that an instance is dirty and why. Something else — the scheduler —
+ * decides when to flush. Splitting it this way is what makes coalescing possible
+ * at all: three causes landing before the next flush become one update, and a
+ * host that applied each cause as it arrived would have already run the widget
+ * three times.
  *
- * ## One instance, one surface, one context
+ * ## One instance, one surface, one context, one state
  *
  * The context is built at attach and replaced whenever the theme or the display
- * changes. There is no context before attach because there is no surface, and a
- * widget with no surface has nothing to render into.
+ * changes. State is initialised at attach and replaced by `update`. There is
+ * neither before attach, because a widget with no surface has nothing to render
+ * into and no reason to be computing.
  */
 
 import {
+  type MonitorId,
+  type SurfaceId,
   type WidgetId,
   type WidgetInstanceId,
-  type SurfaceId,
-  type MonitorId,
   type WidgetManifest,
   widgetOf,
 } from '@devdesk/contracts';
@@ -46,13 +46,13 @@ import { err, ok, type Result } from '@devdesk/shared';
 import type { ThemeSnapshot } from '@devdesk/theme-engine';
 
 import { createWidgetContext, withUpdates, type WidgetContext } from './context';
-import type { WidgetDefinition, WidgetInstance } from './definition';
 import {
-  createEventChannel,
-  type DeliveryFailure,
-  type WidgetEvent,
-  type WidgetEventPublisher,
-} from './events';
+  createUpdate,
+  type UpdateCadence,
+  type WidgetDefinition,
+  type WidgetUpdateReason,
+} from './definition';
+import { createEventChannel, type WidgetEvent, type WidgetEventPublisher } from './events';
 import {
   createLifecycle,
   describeLifecycleError,
@@ -78,6 +78,7 @@ export type HostError =
   | { readonly kind: 'definition-mismatch'; readonly declared: WidgetId; readonly actual: WidgetId }
   | { readonly kind: 'unknown-instance'; readonly id: WidgetInstanceId }
   | { readonly kind: 'already-created'; readonly id: WidgetInstanceId }
+  | { readonly kind: 'not-attached'; readonly id: WidgetInstanceId }
   | { readonly kind: 'lifecycle'; readonly id: WidgetInstanceId; readonly cause: LifecycleError };
 
 /** What the host knows about one instance, from the outside. */
@@ -87,23 +88,32 @@ export interface InstanceSnapshot {
   readonly phase: WidgetPhase;
   readonly surfaceId: SurfaceId | undefined;
   readonly monitorId: MonitorId | undefined;
+  /** How often the runtime should update it on its own. */
+  readonly cadence: UpdateCadence;
+  /** Whether an update is owed. */
+  readonly isDirty: boolean;
 }
 
 /** The host's internal record. Never handed out. */
-interface LiveInstance<TView> {
+interface LiveInstance<TState, TView> {
   readonly instanceId: WidgetInstanceId;
   readonly widgetId: WidgetId;
   readonly manifest: WidgetManifest;
-  readonly definition: WidgetDefinition<TView>;
+  readonly definition: WidgetDefinition<TState, TView>;
   readonly channel: WidgetEventPublisher;
   lifecycle: WidgetLifecycle;
   context: WidgetContext | undefined;
-  instance: WidgetInstance<TView> | undefined;
+  state: TState | undefined;
+  /** Causes accumulated since the last flush. Coalesced when it happens. */
+  pending: Set<WidgetUpdateReason>;
 }
 
-/** Anything that went wrong while delivering an event, reported not swallowed. */
-export interface HostDelivery {
-  readonly failures: readonly DeliveryFailure[];
+/** What a flush did. */
+export interface FlushOutcome {
+  /** Whether the widget returned a different state. */
+  readonly changed: boolean;
+  /** The reasons that were coalesced into it. Empty if nothing was owed. */
+  readonly reasons: readonly WidgetUpdateReason[];
 }
 
 /**
@@ -112,9 +122,9 @@ export interface HostDelivery {
  * Mutable by design — it is the one place instance state lives — but everything
  * it hands out is immutable, so no caller can reach in and change what it holds.
  */
-export class WidgetHost<TView = unknown> {
-  readonly #definitions = new Map<WidgetId, WidgetDefinition<TView>>();
-  readonly #instances = new Map<WidgetInstanceId, LiveInstance<TView>>();
+export class WidgetHost<TState = unknown, TView = unknown> {
+  readonly #definitions = new Map<WidgetId, WidgetDefinition<TState, TView>>();
+  readonly #instances = new Map<WidgetInstanceId, LiveInstance<TState, TView>>();
   #registry: WidgetRegistry;
   #theme: ThemeSnapshot;
 
@@ -123,17 +133,14 @@ export class WidgetHost<TView = unknown> {
     this.#theme = theme;
   }
 
-  /** The current resolved theme. */
   get theme(): ThemeSnapshot {
     return this.#theme;
   }
 
-  /** The widgets the host can build. */
   get registry(): WidgetRegistry {
     return this.#registry;
   }
 
-  /** How many instances exist, in any phase short of destroyed. */
   get instanceCount(): number {
     return this.#instances.size;
   }
@@ -146,19 +153,14 @@ export class WidgetHost<TView = unknown> {
    * code. Keeping them apart is what will let M3 load a manifest from a bundle
    * and its code from a sandbox without either step knowing about the other.
    */
-  define(definition: WidgetDefinition<TView>): Result<void, HostError> {
+  define(definition: WidgetDefinition<TState, TView>): Result<void, HostError> {
     const manifest = this.#registry.lookup(definition.id);
     if (!manifest) return err({ kind: 'unknown-widget', id: definition.id });
 
     return ok(void this.#definitions.set(definition.id, definition));
   }
 
-  /**
-   * Creates an instance of a registered widget.
-   *
-   * The instance exists but has no surface and no context: it is `created`, and
-   * {@link WidgetHost.attach} is what gives it somewhere to be.
-   */
+  /** Creates an instance. It has no surface, no context, and no state yet. */
   create(instanceId: WidgetInstanceId): Result<InstanceSnapshot, HostError> {
     if (this.#instances.has(instanceId)) {
       return err({ kind: 'already-created', id: instanceId });
@@ -188,91 +190,23 @@ export class WidgetHost<TView = unknown> {
       channel: createEventChannel(),
       lifecycle: advanced.value,
       context: undefined,
-      instance: undefined,
+      state: undefined,
+      pending: new Set(),
     });
 
     return ok(this.snapshot(instanceId) as InstanceSnapshot);
   }
 
-  /** Everything the host knows about an instance. */
-  snapshot(instanceId: WidgetInstanceId): InstanceSnapshot | undefined {
-    const live = this.#instances.get(instanceId);
-    if (!live) return undefined;
-
-    return Object.freeze({
-      instanceId: live.instanceId,
-      widgetId: live.widgetId,
-      phase: live.lifecycle.phase,
-      surfaceId: live.context?.surfaceId,
-      monitorId: live.context?.monitorId,
-    });
-  }
-
-  /** Every instance, ordered by identity so the list does not wander. */
-  instances(): readonly InstanceSnapshot[] {
-    return Object.freeze(
-      [...this.#instances.keys()]
-        .sort()
-        .map((id) => this.snapshot(id))
-        .filter((entry): entry is InstanceSnapshot => entry !== undefined),
-    );
-  }
-
-  /** The manifest an instance was built from. */
-  manifestOf(instanceId: WidgetInstanceId): WidgetManifest | undefined {
-    return this.#instances.get(instanceId)?.manifest;
-  }
-
-  /** The view an instance currently wants shown, if it has one. */
-  render(instanceId: WidgetInstanceId): Result<TView, HostError> {
-    const live = this.#instances.get(instanceId);
-    if (!live) return err({ kind: 'unknown-instance', id: instanceId });
-
-    if (!live.instance || !live.context) {
-      return err({
-        kind: 'lifecycle',
-        id: instanceId,
-        cause: { kind: 'illegal-transition', from: live.lifecycle.phase, event: 'start' },
-      });
-    }
-
-    return ok(live.instance.render(live.context));
-  }
-
-  /** Destroys every instance, in a fixed order. */
-  destroyAll(): void {
-    for (const instanceId of [...this.#instances.keys()].sort()) {
-      this.destroy(instanceId);
-    }
-  }
-
   /**
-   * Applies a lifecycle event to an instance.
+   * Attaches an instance to a surface, builds its context, and initialises it.
    *
-   * Shared by every transition so the machine is consulted in exactly one place.
-   * A transition that the machine refuses does not touch the instance at all.
+   * `at` is the runtime's clock. The widget never reads one, so initialisation
+   * needs to be told the time like every update does.
    */
-  protected advance(
-    live: LiveInstance<TView>,
-    event: WidgetLifecycleEvent,
-  ): Result<void, HostError> {
-    const next = live.lifecycle.apply(event);
-    if (!next.ok) return err({ kind: 'lifecycle', id: live.instanceId, cause: next.error });
-
-    live.lifecycle = next.value;
-    return ok(undefined);
-  }
-
-  /** Looks up an instance or reports that it is unknown. */
-  protected live(instanceId: WidgetInstanceId): Result<LiveInstance<TView>, HostError> {
-    const found = this.#instances.get(instanceId);
-    return found ? ok(found) : err({ kind: 'unknown-instance', id: instanceId });
-  }
-
-  /** Attaches an instance to a surface and builds its context. */
   attach(
     instanceId: WidgetInstanceId,
     placement: SurfacePlacement,
+    at: number,
   ): Result<InstanceSnapshot, HostError> {
     const found = this.live(instanceId);
     if (!found.ok) return err(found.error);
@@ -290,10 +224,10 @@ export class WidgetHost<TView = unknown> {
       events: live.channel,
     });
 
-    // The widget is built now, with a context that is already complete. Building
-    // it earlier would mean handing it a context missing the surface it is about
-    // to be told to render into.
-    live.instance = live.definition.create(live.context);
+    // Built now, with a context that is already complete. Initialising earlier
+    // would hand it a context missing the surface it is about to render into.
+    live.state = live.definition.initialize(live.context, at);
+    live.pending = new Set(['attached']);
 
     return ok(this.snapshot(instanceId) as InstanceSnapshot);
   }
@@ -303,23 +237,29 @@ export class WidgetHost<TView = unknown> {
     return this.transition(instanceId, 'start');
   }
 
-  /** Stops updating a running instance, keeping its surface and its context. */
+  /** Stops updating a running instance, keeping its surface, context, and state. */
   suspend(instanceId: WidgetInstanceId): Result<InstanceSnapshot, HostError> {
     return this.transition(instanceId, 'suspend', { kind: 'suspended' });
   }
 
-  /** Resumes a suspended instance. */
+  /**
+   * Resumes a suspended instance.
+   *
+   * Marks it dirty with `resumed`, because time passed while it was not
+   * updating and whatever it shows is stale by definition.
+   */
   resume(instanceId: WidgetInstanceId): Result<InstanceSnapshot, HostError> {
-    return this.transition(instanceId, 'resume', { kind: 'resumed' });
+    const resumed = this.transition(instanceId, 'resume', { kind: 'resumed' });
+    if (resumed.ok) this.markDirty(instanceId, 'resumed');
+    return resumed;
   }
 
   /**
    * Detaches an instance from its surface.
    *
-   * The widget instance is discarded, not kept: it was built against a context
-   * naming a surface that is no longer this instance's, and reusing it would
-   * mean a widget rendering for somewhere it is not. Re-attaching builds a fresh
-   * one.
+   * The state is discarded with the context: it was computed against a surface
+   * that is no longer this instance's, and keeping it would mean a widget
+   * resuming with figures it derived somewhere else.
    */
   detach(instanceId: WidgetInstanceId): Result<InstanceSnapshot, HostError> {
     const found = this.live(instanceId);
@@ -330,9 +270,9 @@ export class WidgetHost<TView = unknown> {
     if (!advanced.ok) return err(advanced.error);
 
     live.channel.publish({ kind: 'detached' });
-    live.instance?.destroy?.();
-    live.instance = undefined;
     live.context = undefined;
+    live.state = undefined;
+    live.pending = new Set();
 
     return ok(this.snapshot(instanceId) as InstanceSnapshot);
   }
@@ -346,14 +286,233 @@ export class WidgetHost<TView = unknown> {
     const advanced = this.advance(live, 'destroy');
     if (!advanced.ok) return err(advanced.error);
 
-    live.instance?.destroy?.();
     live.channel.close();
     this.#instances.delete(instanceId);
 
     return ok(undefined);
   }
 
-  /** Runs a transition that needs no context rebuild. */
+  /** Destroys every instance, in a fixed order. */
+  destroyAll(): void {
+    for (const instanceId of [...this.#instances.keys()].sort()) {
+      this.destroy(instanceId);
+    }
+  }
+
+  // --------------------------------------------------------------- updates --
+
+  /**
+   * Records that an instance owes an update, and why.
+   *
+   * Does not run the widget. Something else decides when, and the causes
+   * accumulate until it does — which is what lets three of them become one call.
+   */
+  markDirty(instanceId: WidgetInstanceId, reason: WidgetUpdateReason): void {
+    const live = this.#instances.get(instanceId);
+    if (!live || !hasSurface(live.lifecycle.phase)) return;
+    live.pending.add(reason);
+  }
+
+  /** Whether an instance owes an update. */
+  isDirty(instanceId: WidgetInstanceId): boolean {
+    return (this.#instances.get(instanceId)?.pending.size ?? 0) > 0;
+  }
+
+  /** The causes an instance has accumulated, in canonical order. */
+  pendingReasons(instanceId: WidgetInstanceId): readonly WidgetUpdateReason[] {
+    const live = this.#instances.get(instanceId);
+    if (!live) return Object.freeze([]);
+    return createUpdate(live.pending, 0).reasons;
+  }
+
+  /**
+   * Runs the widget's `update` with everything it owes, coalesced into one call.
+   *
+   * A no-op when nothing is owed — the common case for a widget with no cadence
+   * on a desktop nobody is touching, and the reason `B-4`'s idle budget is
+   * reachable.
+   *
+   * # Errors
+   *
+   * Reports an unknown instance and one with no surface. A suspended instance is
+   * **not** an error: the scheduler decides whether to flush it, and refusing
+   * here would make "suspended" mean two different things in two places.
+   */
+  flush(instanceId: WidgetInstanceId, at: number): Result<FlushOutcome, HostError> {
+    const found = this.live(instanceId);
+    if (!found.ok) return err(found.error);
+    const live = found.value;
+
+    if (!live.context || live.state === undefined) {
+      return err({ kind: 'not-attached', id: instanceId });
+    }
+    if (live.pending.size === 0) {
+      return ok(Object.freeze({ changed: false, reasons: Object.freeze([]) }));
+    }
+
+    const update = createUpdate(live.pending, at);
+    live.pending = new Set();
+
+    const next = live.definition.update(live.state, update, live.context);
+    const changed = next !== live.state;
+    live.state = next;
+
+    return ok(Object.freeze({ changed, reasons: update.reasons }));
+  }
+
+  /**
+   * The view an instance currently wants shown.
+   *
+   * Renders the state as it stands. It does **not** flush first: rendering is a
+   * read, and a read that silently ran the widget would make two calls that
+   * describe one moment disagree.
+   */
+  render(instanceId: WidgetInstanceId): Result<TView, HostError> {
+    const found = this.live(instanceId);
+    if (!found.ok) return err(found.error);
+    const live = found.value;
+
+    if (!live.context || live.state === undefined) {
+      return err({ kind: 'not-attached', id: instanceId });
+    }
+
+    return ok(live.definition.render(live.state, live.context));
+  }
+
+  /** The state an instance holds. For tests and diagnostics. */
+  stateOf(instanceId: WidgetInstanceId): TState | undefined {
+    return this.#instances.get(instanceId)?.state;
+  }
+
+  // ------------------------------------------------------------ propagation --
+
+  /**
+   * Adopts a new resolved theme and hands it to every attached widget.
+   *
+   * Contexts are rebuilt immediately — the snapshot swap is atomic, and a widget
+   * that renders during the sweep sees either its old context or its new one,
+   * both internally consistent (`AC-THM-3.1`). The *update* is only marked, so a
+   * theme change arriving alongside an interval costs one widget call rather
+   * than two.
+   *
+   * Suspended widgets are included. Skipping them would leave one holding the
+   * previous theme, so resuming would repaint in the old colours — a flash on
+   * exactly the path that exists to avoid one.
+   *
+   * Re-applying the same theme does nothing, compared by identity first and by
+   * content hash otherwise, so a re-resolve triggered by an unrelated change
+   * does not tell every widget the theme moved when it did not.
+   */
+  applyTheme(theme: ThemeSnapshot): readonly WidgetInstanceId[] {
+    if (theme === this.#theme || theme.hash === this.#theme.hash) return Object.freeze([]);
+
+    this.#theme = theme;
+    const affected: WidgetInstanceId[] = [];
+
+    for (const live of this.attachedInstances()) {
+      if (!live.context) continue;
+      live.context = withUpdates(live.context, { theme });
+      live.pending.add('theme-changed');
+      live.channel.publish({ kind: 'theme-changed', theme });
+      affected.push(live.instanceId);
+    }
+
+    return Object.freeze(affected);
+  }
+
+  /**
+   * Tells one instance its surface moved to another display, or lost the one it
+   * had.
+   *
+   * Per-instance rather than global because a topology change does not move
+   * every surface: one display leaving re-associates the surfaces that were on
+   * it and no others, and telling the rest would have every widget recompute for
+   * a change that never touched it.
+   */
+  moveToMonitor(
+    instanceId: WidgetInstanceId,
+    monitorId: MonitorId | undefined,
+  ): Result<boolean, HostError> {
+    const found = this.live(instanceId);
+    if (!found.ok) return err(found.error);
+    const live = found.value;
+
+    if (!live.context) return err({ kind: 'not-attached', id: instanceId });
+    if (live.context.monitorId === monitorId) return ok(false);
+
+    live.context = withUpdates(live.context, { monitorId });
+    live.pending.add('monitor-changed');
+    live.channel.publish({ kind: 'monitor-changed', monitorId });
+
+    return ok(true);
+  }
+
+  /** Asks for an update without giving a more specific cause. */
+  request(instanceId: WidgetInstanceId): void {
+    this.markDirty(instanceId, 'requested');
+  }
+
+  // ------------------------------------------------------------- inspection --
+
+  /** Everything the host knows about an instance. */
+  snapshot(instanceId: WidgetInstanceId): InstanceSnapshot | undefined {
+    const live = this.#instances.get(instanceId);
+    if (!live) return undefined;
+
+    return Object.freeze({
+      instanceId: live.instanceId,
+      widgetId: live.widgetId,
+      phase: live.lifecycle.phase,
+      surfaceId: live.context?.surfaceId,
+      monitorId: live.context?.monitorId,
+      cadence: live.definition.cadence,
+      isDirty: live.pending.size > 0,
+    });
+  }
+
+  /** Every instance, ordered by identity so the list does not wander. */
+  instances(): readonly InstanceSnapshot[] {
+    return Object.freeze(
+      [...this.#instances.keys()]
+        .sort()
+        .map((id) => this.snapshot(id))
+        .filter((entry): entry is InstanceSnapshot => entry !== undefined),
+    );
+  }
+
+  /** The context an instance currently holds, if it has one. */
+  contextOf(instanceId: WidgetInstanceId): WidgetContext | undefined {
+    return this.#instances.get(instanceId)?.context;
+  }
+
+  /** The manifest an instance was built from. */
+  manifestOf(instanceId: WidgetInstanceId): WidgetManifest | undefined {
+    return this.#instances.get(instanceId)?.manifest;
+  }
+
+  /** Swaps the registry, for a widget registered after startup. */
+  setRegistry(registry: WidgetRegistry): void {
+    this.#registry = registry;
+  }
+
+  // --------------------------------------------------------------- internal --
+
+  private live(instanceId: WidgetInstanceId): Result<LiveInstance<TState, TView>, HostError> {
+    const found = this.#instances.get(instanceId);
+    return found ? ok(found) : err({ kind: 'unknown-instance', id: instanceId });
+  }
+
+  private advance(
+    live: LiveInstance<TState, TView>,
+    event: WidgetLifecycleEvent,
+  ): Result<void, HostError> {
+    const next = live.lifecycle.apply(event);
+    if (!next.ok) return err({ kind: 'lifecycle', id: live.instanceId, cause: next.error });
+
+    live.lifecycle = next.value;
+    return ok(undefined);
+  }
+
   private transition(
     instanceId: WidgetInstanceId,
     event: WidgetLifecycleEvent,
@@ -366,135 +525,19 @@ export class WidgetHost<TView = unknown> {
     const advanced = this.advance(live, event);
     if (!advanced.ok) return err(advanced.error);
 
-    if (announce) {
-      // The widget's own hook first, then anything else that subscribed. A
-      // widget must hear about its own suspension without having to subscribe
-      // to a channel in `create` — `onEvent` is the hook, and skipping it here
-      // would make it mean "some events" rather than "events".
-      if (live.context) live.instance?.onEvent?.(announce, live.context);
-      live.channel.publish(announce);
-    }
+    if (announce) live.channel.publish(announce);
 
     return ok(this.snapshot(instanceId) as InstanceSnapshot);
   }
 
-  /** The instances currently holding a surface, in identity order. */
-  protected attached(): readonly LiveInstance<TView>[] {
+  private attachedInstances(): readonly LiveInstance<TState, TView>[] {
     return [...this.#instances.keys()]
       .sort()
       .map((id) => this.#instances.get(id))
-      .filter((live): live is LiveInstance<TView> => live !== undefined && hasSurface(live.lifecycle.phase));
-    }
-
-  /** Replaces an attached instance's context, and tells it. */
-  protected replaceContext(
-    live: LiveInstance<TView>,
-    next: WidgetContext,
-    announce: WidgetEvent,
-  ): readonly DeliveryFailure[] {
-    live.context = next;
-    live.instance?.onEvent?.(announce, next);
-    return live.channel.publish(announce);
-  }
-
-  /** Rebuilds contexts after something that affects every attached instance. */
-  protected rebuildAll(
-    change: { readonly theme?: ThemeSnapshot },
-    announce: (context: WidgetContext) => WidgetEvent,
-  ): HostDelivery {
-    const failures: DeliveryFailure[] = [];
-
-    for (const live of this.attached()) {
-      if (!live.context) continue;
-      const next = withUpdates(live.context, change);
-      failures.push(...this.replaceContext(live, next, announce(next)));
-    }
-
-    return Object.freeze({ failures: Object.freeze(failures) });
-  }
-
-  /**
-   * Adopts a new resolved theme and hands it to every attached widget.
-   *
-   * ## Atomic, because the snapshot is
-   *
-   * Switching is a snapshot swap. There is no moment when half the desktop reads
-   * the old theme and half reads the new one, because no snapshot is ever
-   * mutated and every context is rebuilt from the one snapshot before any widget
-   * is told (`AC-THM-3.1`). A widget that renders during the sweep sees either
-   * its old context or its new one, and both are internally consistent.
-   *
-   * ## Suspended widgets are told too
-   *
-   * A suspended widget keeps its surface and its context; it is simply not
-   * updating. Skipping it would leave it holding the previous theme, so resuming
-   * it would repaint in the old colours — a flash on exactly the path that
-   * exists to avoid one.
-   *
-   * ## Re-applying the same theme does nothing
-   *
-   * Compared by identity first and by content hash otherwise, so two snapshots
-   * resolved from identical inputs in different pools are recognised as the same
-   * theme. Without that, a re-resolve on an unrelated change would tell every
-   * widget the theme moved when it did not.
-   */
-  applyTheme(theme: ThemeSnapshot): HostDelivery {
-    if (theme === this.#theme || theme.hash === this.#theme.hash) {
-      return Object.freeze({ failures: Object.freeze([]) });
-    }
-
-    this.#theme = theme;
-    return this.rebuildAll({ theme }, () => ({ kind: 'theme-changed', theme }));
-  }
-
-  /**
-   * Tells one instance its surface moved to another display, or lost the one it
-   * had.
-   *
-   * Per-instance rather than global because a topology change does not move
-   * every surface: one display leaving re-associates the surfaces that were on
-   * it and no others, and telling the rest would have every widget re-render for
-   * a change that did not touch it.
-   *
-   * # Errors
-   *
-   * Reports an unknown instance, and refuses one with no surface — a widget that
-   * is not attached has no display to have moved.
-   */
-  moveToMonitor(
-    instanceId: WidgetInstanceId,
-    monitorId: MonitorId | undefined,
-  ): Result<HostDelivery, HostError> {
-    const found = this.live(instanceId);
-    if (!found.ok) return err(found.error);
-    const live = found.value;
-
-    if (!live.context) {
-      return err({
-        kind: 'lifecycle',
-        id: instanceId,
-        cause: { kind: 'illegal-transition', from: live.lifecycle.phase, event: 'attach' },
-      });
-    }
-
-    if (live.context.monitorId === monitorId) {
-      return ok(Object.freeze({ failures: Object.freeze([]) }));
-    }
-
-    const next = withUpdates(live.context, { monitorId });
-    const failures = this.replaceContext(live, next, { kind: 'monitor-changed', monitorId });
-
-    return ok(Object.freeze({ failures }));
-  }
-
-  /** The context an instance currently holds, if it has one. */
-  contextOf(instanceId: WidgetInstanceId): WidgetContext | undefined {
-    return this.#instances.get(instanceId)?.context;
-  }
-
-  /** Swaps the registry, for a widget registered after startup. */
-  setRegistry(registry: WidgetRegistry): void {
-    this.#registry = registry;
+      .filter(
+        (live): live is LiveInstance<TState, TView> =>
+          live !== undefined && hasSurface(live.lifecycle.phase),
+      );
   }
 }
 
@@ -511,6 +554,8 @@ export function describeHostError(error: HostError): string {
       return `no instance "${error.id}" exists`;
     case 'already-created':
       return `instance "${error.id}" already exists`;
+    case 'not-attached':
+      return `instance "${error.id}" has no surface, so it has no state to update or render`;
     case 'lifecycle':
       return `${error.id}: ${describeLifecycleError(error.cause)}`;
   }

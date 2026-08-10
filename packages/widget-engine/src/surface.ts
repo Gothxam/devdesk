@@ -85,11 +85,11 @@ export type BindingError =
  * means the reveal sequence is written once rather than at every call site that
  * places a widget.
  */
-export class WidgetSurfaceBinder<TView> {
-  readonly #host: WidgetHost<TView>;
+export class WidgetSurfaceBinder<TState, TView> {
+  readonly #host: WidgetHost<TState, TView>;
   readonly #port: SurfacePort;
 
-  constructor(host: WidgetHost<TView>, port: SurfacePort) {
+  constructor(host: WidgetHost<TState, TView>, port: SurfacePort) {
     this.#host = host;
     this.#port = port;
   }
@@ -106,7 +106,10 @@ export class WidgetSurfaceBinder<TView> {
    * exist — invisible, unreachable, and permanent, which is the same orphan the
    * core's own registration rollback exists to prevent.
    */
-  async place(instanceId: WidgetInstanceId): Promise<Result<InstanceSnapshot, BindingError>> {
+  async place(
+    instanceId: WidgetInstanceId,
+    at: number,
+  ): Promise<Result<InstanceSnapshot, BindingError>> {
     const created = this.#host.create(instanceId);
     if (!created.ok) return err({ kind: 'host', cause: created.error });
 
@@ -116,7 +119,7 @@ export class WidgetSurfaceBinder<TView> {
       return err({ kind: 'port', cause: acquired.error });
     }
 
-    const attached = this.#host.attach(instanceId, acquired.value);
+    const attached = this.#host.attach(instanceId, acquired.value, at);
     if (!attached.ok) {
       await this.#port.release(acquired.value.surfaceId);
       this.#host.destroy(instanceId);
@@ -164,6 +167,7 @@ export class WidgetSurfaceBinder<TView> {
    */
   async moveToNewSurface(
     instanceId: WidgetInstanceId,
+    at: number,
   ): Promise<Result<InstanceSnapshot, BindingError>> {
     const context = this.#host.contextOf(instanceId);
     if (!context) {
@@ -178,7 +182,7 @@ export class WidgetSurfaceBinder<TView> {
     const acquired = await this.#port.acquire(instanceId);
     if (!acquired.ok) return err({ kind: 'port', cause: acquired.error });
 
-    const attached = this.#host.attach(instanceId, acquired.value);
+    const attached = this.#host.attach(instanceId, acquired.value, at);
     if (!attached.ok) {
       await this.#port.release(acquired.value.surfaceId);
       return err({ kind: 'host', cause: attached.error });

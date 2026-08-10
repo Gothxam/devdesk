@@ -10,7 +10,7 @@ import { err, ok, type Result } from '@devdesk/shared';
 import { fallbackSnapshot } from '@devdesk/theme-engine';
 import { describe, expect, it } from 'vitest';
 
-import type { WidgetDefinition } from './definition';
+import { NO_CADENCE, type WidgetDefinition } from './definition';
 import { describeHostError, WidgetHost, type SurfacePlacement } from './host';
 import { createWidgetRegistry } from './registry';
 import {
@@ -99,15 +99,18 @@ class FakePort implements SurfacePort {
   }
 }
 
-function scenario(definition?: WidgetDefinition<string>) {
+function scenario(definition?: WidgetDefinition<number, string>) {
   const registered = createWidgetRegistry().register(MANIFEST);
   if (!registered.ok) throw new Error('fixture');
 
-  const host = new WidgetHost<string>(registered.value, fallbackSnapshot('dark'));
+  const host = new WidgetHost<number, string>(registered.value, fallbackSnapshot('dark'));
   const defined = host.define(
     definition ?? {
       id: id(CLOCK),
-      create: (context) => ({ render: () => context.surfaceId }),
+      cadence: NO_CADENCE,
+      initialize: () => 0,
+      update: (state) => state,
+      render: (_state, context) => context.surfaceId,
     },
   );
   if (!defined.ok) throw new Error('fixture');
@@ -122,7 +125,7 @@ describe('place', () => {
     // producing views, and nothing has told the core to show anything.
     const { host, port, binder } = scenario();
 
-    return binder.place(instance(1)).then((placed) => {
+    return binder.place(instance(1), 1_000).then((placed) => {
       expect(placed.ok).toBe(true);
       if (!placed.ok) return;
 
@@ -138,7 +141,7 @@ describe('place', () => {
     // timer or from `place` returning is how the flash gets reintroduced by the
     // layer meant to prevent it.
     const { port, binder } = scenario();
-    await binder.place(instance(1));
+    await binder.place(instance(1), 1_000);
 
     expect(port.calls.some((call) => call.startsWith('paint:'))).toBe(false);
 
@@ -151,7 +154,7 @@ describe('place', () => {
     const { host, binder, port } = scenario();
     port.monitor = undefined;
 
-    const placed = await binder.place(instance(1));
+    const placed = await binder.place(instance(1), 1_000);
     expect(placed.ok).toBe(true);
     expect(host.contextOf(instance(1))?.monitorId).toBeUndefined();
   });
@@ -160,7 +163,7 @@ describe('place', () => {
     const { host, binder, port } = scenario();
     port.failAcquire = true;
 
-    const placed = await binder.place(instance(1));
+    const placed = await binder.place(instance(1), 1_000);
     expect(placed.ok).toBe(false);
     if (!placed.ok) expect(placed.error.kind).toBe('port');
 
@@ -175,7 +178,7 @@ describe('place', () => {
     // Occupy the identity so `create` inside `place` fails at the host step.
     host.create(instance(1));
 
-    const placed = await binder.place(instance(1));
+    const placed = await binder.place(instance(1), 1_000);
     expect(placed.ok).toBe(false);
     expect(port.calls).toEqual([]);
     expect(host.instanceCount).toBe(1);
@@ -183,9 +186,9 @@ describe('place', () => {
 
   it('refuses to place the same instance twice', async () => {
     const { binder } = scenario();
-    await binder.place(instance(1));
+    await binder.place(instance(1), 1_000);
 
-    const again = await binder.place(instance(1));
+    const again = await binder.place(instance(1), 1_000);
     expect(again.ok).toBe(false);
     if (!again.ok) expect(again.error.kind).toBe('host');
   });
@@ -206,10 +209,10 @@ describe('moveToNewSurface', () => {
     // Acquiring first would leave two surfaces for one widget if the second step
     // failed, and the extra one would be a hidden window nothing refers to.
     const { binder, port } = scenario();
-    await binder.place(instance(1));
+    await binder.place(instance(1), 1_000);
     port.calls.length = 0;
 
-    const moved = await binder.moveToNewSurface(instance(1));
+    const moved = await binder.moveToNewSurface(instance(1), 2_000);
     expect(moved.ok).toBe(true);
 
     expect(port.calls).toEqual([
@@ -221,9 +224,9 @@ describe('moveToNewSurface', () => {
 
   it('leaves the widget running on the new surface', async () => {
     const { host, binder } = scenario();
-    await binder.place(instance(1));
+    await binder.place(instance(1), 1_000);
 
-    const moved = await binder.moveToNewSurface(instance(1));
+    const moved = await binder.moveToNewSurface(instance(1), 2_000);
     expect(moved.ok).toBe(true);
     if (moved.ok) {
       expect(moved.value.phase).toBe('running');
@@ -234,14 +237,14 @@ describe('moveToNewSurface', () => {
 
   it('refuses to move something that is not placed', async () => {
     const { binder } = scenario();
-    expect((await binder.moveToNewSurface(instance(1))).ok).toBe(false);
+    expect((await binder.moveToNewSurface(instance(1), 2_000)).ok).toBe(false);
   });
 });
 
 describe('remove', () => {
   it('destroys the widget and releases its surface', async () => {
     const { host, binder, port } = scenario();
-    await binder.place(instance(1));
+    await binder.place(instance(1), 1_000);
 
     const removed = await binder.remove(instance(1));
     expect(removed.ok).toBe(true);
@@ -253,7 +256,7 @@ describe('remove', () => {
     // Same reason the core removes a surface whether or not its window could be
     // destroyed: keeping it would resurrect it on the next arrangement restore.
     const { host, binder, port } = scenario();
-    await binder.place(instance(1));
+    await binder.place(instance(1), 1_000);
     port.failRelease = true;
 
     const removed = await binder.remove(instance(1));
@@ -282,7 +285,7 @@ describe('describeBindingError', () => {
     const { binder, port } = scenario();
     port.failAcquire = true;
 
-    const placed = await binder.place(instance(1));
+    const placed = await binder.place(instance(1), 1_000);
     expect(placed.ok).toBe(false);
     if (placed.ok) return;
 
