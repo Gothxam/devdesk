@@ -13,6 +13,9 @@
   "dependencies": {
     "@devdesk/ui": "workspace:*",
     "@devdesk/storage": "workspace:*",
-    "@devdesk/hooks": "workspace:*"
+    "@devdesk/hooks": "workspace:*",
+    "@devdesk/contracts": "workspace:*",
+    "@devdesk/shared": "workspace:*",
+    "@devdesk/theme-engine": "workspace:*"
   }
 }

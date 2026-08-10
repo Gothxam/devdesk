@@ -119,12 +119,21 @@ importers:
 
   packages/widget-engine:
     dependencies:
+      '@devdesk/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@devdesk/hooks':
         specifier: workspace:*
         version: link:../hooks
+      '@devdesk/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@devdesk/storage':
         specifier: workspace:*
         version: link:../storage
+      '@devdesk/theme-engine':
+        specifier: workspace:*
+        version: link:../theme-engine
       '@devdesk/ui':
         specifier: workspace:*
         version: link:../ui
