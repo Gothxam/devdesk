@@ -406,9 +406,83 @@ export class WidgetHost<TView = unknown> {
     return Object.freeze({ failures: Object.freeze(failures) });
   }
 
-  /** Swaps the theme every future context is built from. */
-  protected setTheme(theme: ThemeSnapshot): void {
+  /**
+   * Adopts a new resolved theme and hands it to every attached widget.
+   *
+   * ## Atomic, because the snapshot is
+   *
+   * Switching is a snapshot swap. There is no moment when half the desktop reads
+   * the old theme and half reads the new one, because no snapshot is ever
+   * mutated and every context is rebuilt from the one snapshot before any widget
+   * is told (`AC-THM-3.1`). A widget that renders during the sweep sees either
+   * its old context or its new one, and both are internally consistent.
+   *
+   * ## Suspended widgets are told too
+   *
+   * A suspended widget keeps its surface and its context; it is simply not
+   * updating. Skipping it would leave it holding the previous theme, so resuming
+   * it would repaint in the old colours — a flash on exactly the path that
+   * exists to avoid one.
+   *
+   * ## Re-applying the same theme does nothing
+   *
+   * Compared by identity first and by content hash otherwise, so two snapshots
+   * resolved from identical inputs in different pools are recognised as the same
+   * theme. Without that, a re-resolve on an unrelated change would tell every
+   * widget the theme moved when it did not.
+   */
+  applyTheme(theme: ThemeSnapshot): HostDelivery {
+    if (theme === this.#theme || theme.hash === this.#theme.hash) {
+      return Object.freeze({ failures: Object.freeze([]) });
+    }
+
     this.#theme = theme;
+    return this.rebuildAll({ theme }, () => ({ kind: 'theme-changed', theme }));
+  }
+
+  /**
+   * Tells one instance its surface moved to another display, or lost the one it
+   * had.
+   *
+   * Per-instance rather than global because a topology change does not move
+   * every surface: one display leaving re-associates the surfaces that were on
+   * it and no others, and telling the rest would have every widget re-render for
+   * a change that did not touch it.
+   *
+   * # Errors
+   *
+   * Reports an unknown instance, and refuses one with no surface — a widget that
+   * is not attached has no display to have moved.
+   */
+  moveToMonitor(
+    instanceId: WidgetInstanceId,
+    monitorId: MonitorId | undefined,
+  ): Result<HostDelivery, HostError> {
+    const found = this.live(instanceId);
+    if (!found.ok) return err(found.error);
+    const live = found.value;
+
+    if (!live.context) {
+      return err({
+        kind: 'lifecycle',
+        id: instanceId,
+        cause: { kind: 'illegal-transition', from: live.lifecycle.phase, event: 'attach' },
+      });
+    }
+
+    if (live.context.monitorId === monitorId) {
+      return ok(Object.freeze({ failures: Object.freeze([]) }));
+    }
+
+    const next = withUpdates(live.context, { monitorId });
+    const failures = this.replaceContext(live, next, { kind: 'monitor-changed', monitorId });
+
+    return ok(Object.freeze({ failures }));
+  }
+
+  /** The context an instance currently holds, if it has one. */
+  contextOf(instanceId: WidgetInstanceId): WidgetContext | undefined {
+    return this.#instances.get(instanceId)?.context;
   }
 
   /** Swaps the registry, for a widget registered after startup. */
