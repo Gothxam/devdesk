@@ -93,3 +93,17 @@ export {
   needsRepaint,
   mergeInvalidations,
 } from './invalidation';
+
+export {
+  APPEARANCE_TOKENS,
+  appearanceFromTheme,
+  equalAppearance,
+} from './appearance';
+
+export {
+  type FrameSource,
+  type FramePresenter,
+  type CompositionFrame,
+  type CompositorMetrics,
+  Compositor,
+} from './compositor';
