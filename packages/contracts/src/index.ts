@@ -10,3 +10,13 @@
  */
 
 export * from './generated/contract';
+
+/**
+ * Hand-written schemas, as distinct from the generated IPC surface above.
+ *
+ * The distinction matters: everything from `./generated/` is derived from Rust
+ * signatures and regenerating it is the only legal way to change it (GEN-1).
+ * What follows is authored here because it describes an artifact the *user*
+ * writes — a manifest — which no Rust signature can generate.
+ */
+export * from './widget';

@@ -10,3 +10,4 @@
  */
 
 export { type Result, ok, err, isOk, isErr } from './result';
+export { type Brand, brand } from './brand';
