@@ -13,9 +13,11 @@
  *
  * The window subsystem and the platform. A widget attaches to a *surface*, and
  * the surface is created by the Rust core. Nothing in this package holds a
- * window, a monitor handle, or a Tauri import — the boundary is a
- * `SurfacePort`, which the host application implements against the generated
- * contract.
+ * window, a monitor handle, or a Tauri import — the boundary is a surface port,
+ * which the host application implements against the generated contract.
+ *
+ * It also never renders. Widgets produce view models; the shell turns those into
+ * pixels. That is what lets widget behaviour be tested without a DOM.
  */
 
 export {
@@ -44,3 +46,31 @@ export {
   validateManifest,
   describeRegistrationError,
 } from './registry';
+
+export {
+  type WidgetContext,
+  type WidgetContextInit,
+  createWidgetContext,
+  withUpdates,
+} from './context';
+
+export {
+  type WidgetEvent,
+  type WidgetEventChannel,
+  type WidgetEventListener,
+  type WidgetEventPublisher,
+  type DeliveryFailure,
+  type Unsubscribe,
+  createEventChannel,
+} from './events';
+
+export { type WidgetDefinition, type WidgetInstance } from './definition';
+
+export {
+  type SurfacePlacement,
+  type HostError,
+  type InstanceSnapshot,
+  type HostDelivery,
+  WidgetHost,
+  describeHostError,
+} from './host';

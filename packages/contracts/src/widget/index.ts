@@ -35,6 +35,14 @@ export {
 } from './capability';
 
 export {
+  type SurfaceId,
+  type MonitorId,
+  type CoreIdentityError,
+  surfaceId,
+  monitorId,
+} from './surface';
+
+export {
   type WidgetManifest,
   type WidgetSize,
   type ManifestError,
