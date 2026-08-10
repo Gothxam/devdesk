@@ -19,6 +19,22 @@
  */
 
 export {
+  type WidgetPhase,
+  type WidgetLifecycleEvent,
+  type WidgetLifecycle,
+  type LifecycleError,
+  WIDGET_PHASES,
+  WIDGET_LIFECYCLE_EVENTS,
+  createLifecycle,
+  lifecycleAt,
+  nextPhase,
+  accepts,
+  hasSurface,
+  isUpdating,
+  describeLifecycleError,
+} from './lifecycle';
+
+export {
   type WidgetRegistry,
   type RegistrationError,
   type UnregistrationError,
