@@ -78,3 +78,96 @@
     open pending a scope decision — it is `feat(app)`, not display.
   - Day 4 — widget runtime (C21–C25).
 
+
+---
+
+## 📅 Session Log: 2026-08-08 — Sprint 1 Day 4 (Window Subsystem)
+
+- **Agent**: Claude Opus 5 (Anthropic) via Claude Code
+- **Task**: `ADR-0004` and its Amendment 1, then Sprint 1 commits C20–C24 — the
+  window subsystem: `WindowId`, `SurfaceId`, `WindowManager`, `SurfaceManager`,
+  `RevealStateMachine`, hidden surface creation.
+- **Files Changed**:
+  - `docs/adr/ADR-0004-display-topology-identity-and-transaction-model.md` (new)
+  - `docs/architecture/SYSTEM_ARCHITECTURE.md` — §9.3 `WD-3`, §9.5 (new
+    `WD-10`…`WD-12`), §19.1, §23 `DD-009`, §27.3, §28 glossary
+  - `docs/adr/ADR-0001-system-architecture.md` — §3.5 `D-10` register
+  - `crates/devdesk-core/src/window/` — `id.rs`, `event.rs`, `manager.rs`,
+    `surface.rs`, `reveal.rs`, `outcome.rs`, `host.rs`, `tests/`
+  - `crates/devdesk-ipc/src/lib.rs` — `surface_report_first_frame`
+  - `apps/desktop/src-tauri/src/surface.rs` (new), `lib.rs`
+  - `tests/integration/window_lifecycle.rs`
+- **Decisions Made**:
+  - ADR numbers are allocated in **decision order**, amending `ADR-0001` `D-10`.
+    Stage-ordered numbering only works if ADRs are written in stage order, and
+    this is a Stage 2 decision written while the Stage 0 ones are outstanding.
+    The register had already contradicted itself: `ADR-0001` §3.5 reserved
+    `ADR-0007` for topology identity while `SYSTEM_ARCHITECTURE.md` §27.3
+    reserved `ADR-0010`.
+  - `TopologyGeneration` is process-local and never persisted (Amendment 1,
+    `TP-14`). A stored generation is not merely meaningless next launch — it
+    still *compares*, so a consumer reasoning about staleness across a restart
+    discards the arrangement it just enumerated.
+  - `SurfaceId` persists and derives `serde`; `WindowId` does neither. Same
+    doctrine as the generation, same reason.
+  - `note_first_frame` reveals in the same call. `AC-FRE-1.1` is that a surface
+    becomes visible *when* its content is ready; a separate reveal call opens a
+    window in which a caller can forget, delay, or reorder it.
+  - `WindowCommand::CreateHidden` carries no `visible` field, so the flash is a
+    state the system cannot reach rather than a mistake a caller can make.
+  - `SurfaceRecord` carries both `monitor` and `preferred`. Collapsing them makes
+    an arrangement erode one docking cycle at a time with no step looking wrong.
+- **Next Steps**:
+  - Day 4.5 — window/display hardening (C25–C29).
+  - No surface is created at startup; first-run arrangement is C39.
+  - The `TS-5` virtual topology harness (`ADR-0004` §7.3) is still owed at Stage 3.
+
+---
+
+## 📅 Session Log: 2026-08-08 — Sprint 1 Day 4.5 (Window–Display Hardening)
+
+- **Agent**: Claude Opus 5 (Anthropic) via Claude Code
+- **Task**: Commits C25–C29 — implementation hardening only. No architecture
+  document, ADR, or design document was modified, by instruction.
+- **Files Changed**:
+  - `crates/devdesk-core/src/window/` — `host.rs`, `manager.rs`, `surface.rs`,
+    `outcome.rs`
+  - `tests/integration/` — `support.rs`, `window_races.rs`, `window_recovery.rs`,
+    `window_properties.rs` (all new), `window_lifecycle.rs`, `README.md`
+  - `tests/perf/` — `harness.rs`, `window.bench.rs` (new), `topology.bench.rs`,
+    `README.md`
+  - `knowledge/performance/2026-08-08-window-subsystem.md` (new)
+  - `crates/devdesk-core/README.md`, `crates/devdesk-display/README.md`
+- **Decisions Made**:
+  - **Two real defects were found and fixed, not just tested around.**
+    1. `SurfaceHost` computed under the state lock and dispatched outside it, so
+       two threads could compute in one order and dispatch in the other — a show
+       reaching the windowing system before the create that makes its window.
+       The lock is now held across the sink calls. Window creation serialises,
+       which is acceptable: it happens at startup and on user action, never in a
+       frame.
+    2. A surface could reveal onto a desktop with no displays. Reaching
+       `Revealed` is still correct — it *has* painted — but the command now
+       waits. A surface that has painted is **owed** a show, and the debt is
+       discharged by the next association that gives it a display.
+  - The show debt doubles as the recovery path for a refused show: the command is
+    confirmed only after the sink accepts it. Recovery is bounded to topology
+    adoptions, so a repeated frame signal is still a no-op rather than a retry
+    loop against a window that will not show.
+  - Failure handling is deliberately asymmetric: a failed create rolls back, a
+    failed show does not, and a removal commits regardless. Each is argued in
+    `crates/devdesk-core/README.md`.
+  - Property tests use a fixed-seed xorshift rather than a dependency. A property
+    test that fails once and passes on re-run tells you nothing.
+  - The perf method moved to `tests/perf/harness.rs`. Two suites measuring the
+    same budget by different methods produce numbers that cannot be compared.
+- **Verification**: 82 tests — 43 unit, 8 lifecycle, 10 races, 10 recovery,
+  5 property (~250 runs, ~30k generated operations), 2 display bench, 1 window
+  bench, plus 78 display and 17 platform unit tests and 53 TypeScript. Gate green.
+- **Next Steps**:
+  - Day 5 — widget runtime. Nothing in the window subsystem is a prerequisite
+    that is still open.
+  - The 32-surface benchmark is thread-spawn-bound and is the wrong instrument
+    for lock contention; a slow-sink benchmark is owed if dispatch serialisation
+    is ever suspected.
+  - `TS-5` virtual topology harness still owed at Stage 3.

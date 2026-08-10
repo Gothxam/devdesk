@@ -30,6 +30,14 @@ is both always present and always stable, so a match carries an
 `IdentityConfidence` and an ambiguous match resolves to nothing rather than to a
 guess.
 
+Two identifiers, two lifetimes. `TopologyFingerprint` says *which* arrangement
+this is, repeats when the user returns to a known desk, and is **persisted** —
+it is the layout key. `TopologyGeneration` says *how recent* an observation is,
+is **process-local, and is never persisted** (`ADR-0004` `TP-14`): it counts
+publications made by one running process, so a stored one is meaningless on the
+next launch and, worse, still compares. It derives neither `Serialize` nor
+`Deserialize`, and that absence is load-bearing rather than an oversight.
+
 ## Does not own
 
 Window placement policy — that is layout, owned by `devdesk-core`.

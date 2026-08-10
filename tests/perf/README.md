@@ -25,3 +25,31 @@ measurement on a developer machine — is informational** (ADR-0002 MM-1).
 
 `knowledge/performance/`. Measurement data never lives in `docs/`
 (PROJECT_CONSTITUTION §2), and it never lives here.
+
+## The shared harness
+
+`harness.rs` implements the ADR-0002 §8.5 method once — `MM-11`'s 20 iterations
+after 3 discarded warm-ups, `MM-12`'s median of three independent runs — and
+every suite includes it with `#[path]`. It is not a convenience: two suites
+measuring the same budget by different methods produce numbers that cannot be
+compared, which defeats the purpose of naming a method at all.
+
+`measure` times an operation in batches, for operations fast enough that the
+clock's resolution would otherwise be a meaningful fraction of the result.
+`measure_prepared` times an operation that needs fresh setup each iteration and
+excludes the setup — the only way to measure something that happens once per
+subject, such as revealing a surface, where a batch would measure the no-op that
+the second call correctly is.
+
+## Suites
+
+| Suite | Budget | Measures |
+| --- | --- | --- |
+| `topology.bench.rs` | `PB-G7` | Fingerprint, diff, graph build, publish, spatial queries, real enumeration |
+| `window.bench.rs` | `PB-R6`, `PB-G7` | Reveal, topology adoption, association, 32-surface startup |
+
+Both are wired as `[[test]]` targets on the crate they exercise, so `cargo test
+--workspace` runs them and the assertions act as regression guards. Those
+assertions sit far above the measured values on purpose: they catch an
+algorithmic regression, not wall-clock drift, which would be flaky on a loaded
+runner and is the reference runner's job to gate.
