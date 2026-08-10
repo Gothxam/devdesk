@@ -117,3 +117,14 @@ export {
   NEVER_SUSPEND,
   describeSuspendDecision,
 } from './visibility';
+
+/**
+ * The desktop composition layer.
+ *
+ * Independent of everything above: nothing under `composition/` imports the
+ * widget runtime, and a surface there is an identity, a rectangle, and a band.
+ * It lives in this package because `WR-1` assigns z-management and placement
+ * here; making the independence structural rather than observed would need an
+ * ADR-0003 §4.1 amendment for a package of its own.
+ */
+export * from './composition';
