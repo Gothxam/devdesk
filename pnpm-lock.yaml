@@ -29,6 +29,9 @@ importers:
       '@devdesk/theme-engine':
         specifier: workspace:*
         version: link:../../packages/theme-engine
+      '@devdesk/widget-engine':
+        specifier: workspace:*
+        version: link:../../packages/widget-engine
       react:
         specifier: 19.2.0
         version: 19.2.0

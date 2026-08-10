@@ -59,6 +59,99 @@ fn contract_describe() -> Result<ContractInfo, IpcError> {
     })
 }
 
+/// Where a surface is.
+///
+/// The monitor is absent when no display is attached — a closed lid with
+/// nothing plugged in. A real state, and the shell renders differently for it
+/// rather than guessing.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct SurfacePlacement {
+    pub surface_id: String,
+    pub monitor_id: Option<String>,
+}
+
+/// Registers a surface and creates its window, hidden.
+///
+/// The identity is supplied by the caller and **is the widget instance's
+/// identity**. Both have to survive a restart and both name the same thing, so
+/// deriving one from the other would mean maintaining a mapping that can only
+/// ever be wrong. The window is created hidden regardless; nothing here can
+/// make anything visible (`AC-FRE-1.1`).
+///
+/// # Errors
+///
+/// [`IpcError::InvalidArgument`] for an empty identity,
+/// [`IpcError::PreconditionFailed`] if the identity is already registered, and
+/// [`IpcError::Internal`] if the windowing system refused to create the window.
+#[tauri::command]
+#[specta::specta]
+fn surface_register(
+    host: tauri::State<'_, SurfaceHost>,
+    surface_id: String,
+) -> Result<SurfacePlacement, IpcError> {
+    let surface = SurfaceId::new(surface_id).ok_or_else(|| IpcError::InvalidArgument {
+        field: "surface_id".to_owned(),
+        expected: "a non-empty surface identity".to_owned(),
+    })?;
+
+    host.register(surface.clone())
+        .map_err(|error| match error {
+            HostError::Window(WindowError::Surface(SurfaceError::AlreadyRegistered {
+                surface,
+            })) => IpcError::PreconditionFailed {
+                reason: format!("surface {surface} is already registered"),
+            },
+            _ => IpcError::Internal {
+                trace_id: next_trace_id(),
+            },
+        })?;
+
+    let monitor_id = host.with_manager(|manager| {
+        manager
+            .surfaces()
+            .get(&surface)
+            .and_then(|record| record.monitor().map(ToString::to_string))
+    });
+
+    Ok(SurfacePlacement {
+        surface_id: surface.to_string(),
+        monitor_id,
+    })
+}
+
+/// Removes a surface and destroys its window.
+///
+/// # Errors
+///
+/// [`IpcError::NotFound`] for an unknown surface. A refusal from the windowing
+/// system is **not** reported as a failure to the caller: the surface is gone
+/// either way, and telling the shell otherwise would have it believe a widget it
+/// no longer owns is still placed.
+#[tauri::command]
+#[specta::specta]
+fn surface_release(
+    host: tauri::State<'_, SurfaceHost>,
+    surface_id: String,
+) -> Result<(), IpcError> {
+    let surface = SurfaceId::new(surface_id).ok_or_else(|| IpcError::InvalidArgument {
+        field: "surface_id".to_owned(),
+        expected: "a non-empty surface identity".to_owned(),
+    })?;
+
+    match host.remove(&surface) {
+        Ok(_) | Err(HostError::Sink { .. }) => Ok(()),
+        Err(HostError::Window(WindowError::Surface(SurfaceError::Unknown { surface }))) => {
+            Err(IpcError::NotFound {
+                kind: "surface".to_owned(),
+                id: surface.to_string(),
+            })
+        }
+        Err(_) => Err(IpcError::Internal {
+            trace_id: next_trace_id(),
+        }),
+    }
+}
+
 /// Reports that a surface has painted its first frame.
 ///
 /// The shell calls this once, after its first paint. It is the entire input to
@@ -128,6 +221,8 @@ fn next_trace_id() -> TraceId {
 pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         contract_describe,
+        surface_register,
+        surface_release,
         surface_report_first_frame
     ])
 }

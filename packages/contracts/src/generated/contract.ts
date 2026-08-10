@@ -37,6 +37,47 @@ async contractDescribe() : Promise<Result<ContractInfo, IpcError>> {
 }
 },
 /**
+ * Registers a surface and creates its window, hidden.
+ * 
+ * The identity is supplied by the caller and **is the widget instance's
+ * identity**. Both have to survive a restart and both name the same thing, so
+ * deriving one from the other would mean maintaining a mapping that can only
+ * ever be wrong. The window is created hidden regardless; nothing here can
+ * make anything visible (`AC-FRE-1.1`).
+ * 
+ * # Errors
+ * 
+ * [`IpcError::InvalidArgument`] for an empty identity,
+ * [`IpcError::PreconditionFailed`] if the identity is already registered, and
+ * [`IpcError::Internal`] if the windowing system refused to create the window.
+ */
+async surfaceRegister(surfaceId: string) : Promise<Result<SurfacePlacement, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("surface_register", { surfaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Removes a surface and destroys its window.
+ * 
+ * # Errors
+ * 
+ * [`IpcError::NotFound`] for an unknown surface. A refusal from the windowing
+ * system is **not** reported as a failure to the caller: the surface is gone
+ * either way, and telling the shell otherwise would have it believe a widget it
+ * no longer owns is still placed.
+ */
+async surfaceRelease(surfaceId: string) : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("surface_release", { surfaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Reports that a surface has painted its first frame.
  * 
  * The shell calls this once, after its first paint. It is the entire input to
@@ -109,6 +150,14 @@ export type IpcError = { kind: "invalid-argument"; detail: { field: string; expe
  * The platform a capability was unavailable on.
  */
 export type Platform = "windows" | "mac-os" | "linux"
+/**
+ * Where a surface is.
+ * 
+ * The monitor is absent when no display is attached — a closed lid with
+ * nothing plugged in. A real state, and the shell renders differently for it
+ * rather than guessing.
+ */
+export type SurfacePlacement = { surface_id: string; monitor_id: string | null }
 /**
  * A correlation identifier linking a shell-observed failure to a core-side span.
  */

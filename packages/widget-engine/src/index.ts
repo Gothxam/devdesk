@@ -67,6 +67,14 @@ export {
 export { type WidgetDefinition, type WidgetInstance } from './definition';
 
 export {
+  type SurfacePort,
+  type SurfacePortError,
+  type BindingError,
+  WidgetSurfaceBinder,
+  describeBindingError,
+} from './surface';
+
+export {
   type SurfacePlacement,
   type HostError,
   type InstanceSnapshot,
