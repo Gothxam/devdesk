@@ -205,6 +205,7 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
         isEditMode={isEditMode}
         snapGuides={snapGuides}
         workArea={{ width: window.innerWidth, height: window.innerHeight }}
+        onToggleEditMode={() => setIsEditMode((prev) => !prev)}
       />
 
       {/* Render Surfaces from Composition Scene (Source of Truth) */}

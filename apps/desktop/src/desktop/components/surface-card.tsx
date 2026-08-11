@@ -67,8 +67,8 @@ export function surfaceStyle(
       : isHit
       ? '0 0 40px rgba(255, 255, 255, 0.22), 0 32px 80px rgba(0, 0, 0, 0.7)'
       : '0 24px 64px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
-    pointerEvents: isEditMode ? 'auto' : 'none',
-    cursor: isEditMode ? (placement.isLocked ? 'not-allowed' : 'grab') : 'default',
+    pointerEvents: 'auto',
+    cursor: isEditMode ? (placement.isLocked ? 'not-allowed' : 'grab') : 'pointer',
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'center',
@@ -149,7 +149,7 @@ function SessionWidgetView(): React.JSX.Element {
 
       <div style={{ fontSize: 11, color: '#71717a', display: 'flex', justifyContent: 'space-between' }}>
         <span>Start: 15:30:00</span>
-        <span> Cadence: 1.0s</span>
+        <span>Cadence: 1.0s</span>
       </div>
     </div>
   );

@@ -371,3 +371,21 @@ SurfaceManager
 - **Verification**: `pnpm check:types` and `pnpm test` (all 416 Vitest unit tests) passed 100% green.
 
 
+---
+
+## 📅 Session Log: 2026-08-11 — Stage 6: Desktop Mode Pointer & Interaction Routing Fix
+
+- **Agent**: Antigravity (Google DeepMind)
+- **Task**: Fix Stage 6 Desktop Mode interaction routing (Edit Mode entry, Context Menu triggering, pointer events routing in WorkerW desktop overlay).
+- **Files Changed**:
+  - `apps/desktop/src/desktop/components/surface-card.tsx` (Enabled `pointerEvents: 'auto'` on surface cards in all modes for instant right-click context menu and hover interactions)
+  - `apps/desktop/src/desktop/components/edit-overlay.tsx` (Added top-right floating `Edit Layout` hot-button toggle pill)
+  - `apps/desktop/src/desktop/desktop-root.tsx` (Wired `onToggleEditMode` callback through `EditOverlay` and context menu)
+  - `.ai/SESSION.md` (Logged interaction routing fix)
+- **Decisions Made**:
+  - Surface cards maintain `pointerEvents: 'auto'` in both normal and edit modes so right-click context clicks immediately trigger `ContextMenu` (`instanceId`) regardless of desktop window focus.
+  - Added visual `✏️ Edit Layout (Ctrl+E)` hot button on desktop overlay so users can enter/exit Edit Mode via keyboard shortcut or direct click.
+- **Verification**: `pnpm check:types` and `pnpm test` (all 416 Vitest unit tests) passed 100% green.
+
+
+
