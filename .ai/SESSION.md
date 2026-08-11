@@ -171,3 +171,113 @@
     for lock contention; a slow-sink benchmark is owed if dispatch serialisation
     is ever suspected.
   - `TS-5` virtual topology harness still owed at Stage 3.
+
+---
+
+## 📅 Session Log: 2026-08-10 — Stage 3 + Stage 3.5 Complete
+
+### Completed
+
+#### Stage 3 — Widget Runtime Foundation
+
+Completed commits:
+
+- C30 `d622f63` — Widget identity, version, capability, and manifest
+- C31 `4b0c5e7` — WidgetRegistry
+- C32 `b37ae51` — Deterministic WidgetLifecycle
+- C33 `6dbcc7f` — WidgetContext, event channel, and WidgetHost
+- C34 `da2f58e` — ThemeSnapshot propagation
+- C35 `dbe631a` — Surface attachment through SurfacePort
+- C36 `e9e24d0` — Clock widget and end-to-end runtime integration
+
+#### Stage 3.5 — Scheduler and Runtime Services
+
+Completed commits:
+
+- C37 `719387a` — Widgets became pure initialize/update/render units
+- C38 `f9fea36` — Timer service and WidgetScheduler
+- C39 `55b2e87` — Visibility management and suspend policy
+- C40 `d522f7e` — Scheduler benchmarks
+
+### Architectural Decisions
+
+#### Widgets are pure
+
+Widgets do not own:
+
+- timers
+- clock reads
+- scheduling
+- DOM access
+- platform access
+
+Widgets only implement:
+
+- initialize
+- update
+- render
+
+#### Runtime owns cadence
+
+Pipeline:
+
+TimerService
+→ WidgetScheduler
+→ WidgetHost
+→ Widget.update(reasons)
+→ Widget.render()
+
+#### Theme propagation
+
+Widgets receive immutable ThemeSnapshot instances.
+
+Theme sources never enter widget runtime.
+
+#### Surface boundary
+
+Widgets communicate through SurfacePort.
+
+Widget runtime remains independent of Tauri and Rust window types.
+
+### Important Invariants
+
+- No visibility before FirstFrameReady.
+- No widget timers.
+- One scheduler for the entire desktop.
+- Update reasons are coalesced before rendering.
+- Hidden or suspended widgets do not consume update time.
+- Widget runtime remains platform-independent.
+
+### Benchmarks
+
+Scheduler:
+
+- single update: 2.3 µs
+- render: 0.3 µs
+- flush 32 widgets: 30.0 µs
+- theme switch across 32 widgets: 14.6 µs
+- one-second cadence across 32 widgets: 101.1 µs
+
+Performance remains well within ADR-0002 budgets.
+
+### Open Items
+
+- No startup widget arrangement yet.
+- WidgetCapability is declared but not enforced.
+- TS-5 virtual topology harness remains outstanding.
+- Stage 4 has not started.
+
+### Next Stage
+
+Stage 4: Desktop Composition Layer
+
+Focus:
+
+- CompositionSurface
+- CompositionLayer
+- Z-order
+- hit testing
+- blur/transparency pipeline
+- composition scheduling
+
+Do not start layout persistence or drag-and-drop before composition architecture is complete.
