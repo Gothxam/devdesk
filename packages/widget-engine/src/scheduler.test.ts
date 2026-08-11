@@ -489,6 +489,115 @@ describe('reporting', () => {
   });
 });
 
+describe('onFlush', () => {
+  it('reports timer-driven passes, which flushDue callers never see', () => {
+    // The gap mounting the desktop found: the wake-up path called flushDue
+    // internally and dropped the report, so a shell driving updates through the
+    // scheduler's own timer could never learn which widgets changed.
+    const reports: string[][] = [];
+    const definition = recorder();
+    const registered = createWidgetRegistry().register(MANIFEST);
+    if (!registered.ok) throw new Error('fixture');
+
+    const host = new WidgetHost<State, number>(registered.value, fallbackSnapshot('dark'));
+    if (!host.define(definition).ok) throw new Error('fixture');
+
+    const timer = createManualTimer();
+    const scheduler = new WidgetScheduler(host, timer, {
+      onFlush: (report) => reports.push([...report.changed]),
+    });
+
+    const target = instance(1);
+    host.create(target);
+    host.attach(
+      target,
+      { surfaceId: surface('surface-1'), monitorId: monitor('unit:SN-LAPTOP') },
+      timer.now(),
+    );
+    host.start(target);
+    host.flush(target, timer.now());
+    scheduler.register(target);
+    scheduler.start();
+
+    timer.advance(TICK);
+
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toEqual(['devdesk.clock#1']);
+  });
+
+  it('runs after state settles, so a callback can render the flushed state', () => {
+    const seen: number[] = [];
+    const definition = recorder();
+    const registered = createWidgetRegistry().register(MANIFEST);
+    if (!registered.ok) throw new Error('fixture');
+
+    const host = new WidgetHost<State, number>(registered.value, fallbackSnapshot('dark'));
+    if (!host.define(definition).ok) throw new Error('fixture');
+
+    const timer = createManualTimer();
+    const scheduler = new WidgetScheduler(host, timer, {
+      onFlush: (report) => {
+        for (const changed of report.changed) {
+          const view = host.render(changed);
+          if (view.ok) seen.push(view.value);
+        }
+      },
+    });
+
+    const target = instance(1);
+    host.create(target);
+    host.attach(
+      target,
+      { surfaceId: surface('surface-1'), monitorId: monitor('unit:SN-LAPTOP') },
+      timer.now(),
+    );
+    host.start(target);
+    host.flush(target, timer.now());
+    scheduler.register(target);
+    scheduler.start();
+
+    timer.advance(TICK * 3);
+
+    // The recorder's view is its update count. The settle-flush at placement was
+    // update 1, so the three timer passes render 2, 3, 4 — each callback saw the
+    // count as of its own pass, already flushed.
+    expect(seen).toEqual([2, 3, 4]);
+  });
+
+  it('fires for a manual flushDue call too, with the same report it returns', () => {
+    let fromHook: readonly string[] | undefined;
+    const definition = recorder(NO_CADENCE);
+    const registered = createWidgetRegistry().register(MANIFEST);
+    if (!registered.ok) throw new Error('fixture');
+
+    const host = new WidgetHost<State, number>(registered.value, fallbackSnapshot('dark'));
+    if (!host.define(definition).ok) throw new Error('fixture');
+
+    const timer = createManualTimer();
+    const scheduler = new WidgetScheduler(host, timer, {
+      onFlush: (report) => {
+        fromHook = report.changed;
+      },
+    });
+
+    const target = instance(1);
+    host.create(target);
+    host.attach(
+      target,
+      { surfaceId: surface('surface-1'), monitorId: monitor('unit:SN-LAPTOP') },
+      timer.now(),
+    );
+    host.start(target);
+    host.flush(target, timer.now());
+    scheduler.register(target);
+    scheduler.start();
+    host.markDirty(target, 'requested');
+
+    const returned = scheduler.flushDue();
+    expect(fromHook).toBe(returned.changed);
+  });
+});
+
 describe('registration', () => {
   it('refuses an instance the host does not have', () => {
     expect(w.scheduler.register(instance(9))).toBe(false);

@@ -69,6 +69,24 @@ export interface SchedulerOptions {
    * pass rather than waiting for something to notice.
    */
   readonly suspendPolicy?: SuspendPolicy;
+
+  /**
+   * Receives the report of every flush pass, however the pass was started.
+   *
+   * This is how a renderer learns which instances changed. The class doc says
+   * the scheduler "reports which instances changed, and the shell decides what
+   * to do" — but the timer-driven path calls {@link WidgetScheduler.flushDue}
+   * internally and, without this hook, its report went nowhere. A shell driving
+   * updates through the scheduler's own wake-ups could never find out that a
+   * widget's state moved, which is the gap mounting the desktop found.
+   *
+   * Called synchronously at the end of the pass, after all state has settled,
+   * so reading or rendering from inside the callback observes the flushed
+   * state. A callback that throws does not corrupt the pass — the pass is
+   * already complete — but the error propagates to the timer's caller, so keep
+   * it total.
+   */
+  readonly onFlush?: (report: FlushReport) => void;
 }
 
 /** What one flush pass did. */
@@ -139,6 +157,7 @@ export class WidgetScheduler<TState, TView> {
   readonly #timer: TimerService;
   readonly #minIntervalMs: number;
   readonly #policy: SuspendPolicy;
+  readonly #onFlush: ((report: FlushReport) => void) | undefined;
   readonly #entries = new Map<WidgetInstanceId, Entry>();
 
   #cancel: CancelTimer | undefined;
@@ -164,6 +183,7 @@ export class WidgetScheduler<TState, TView> {
     this.#timer = timer;
     this.#minIntervalMs = Math.max(0, options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS);
     this.#policy = options.suspendPolicy ?? SUSPEND_WHEN_UNSEEN;
+    this.#onFlush = options.onFlush;
   }
 
   /** The policy deciding what runs. */
@@ -447,13 +467,20 @@ export class WidgetScheduler<TState, TView> {
 
     this.rearm();
 
-    return Object.freeze({
+    const report: FlushReport = Object.freeze({
       at,
       changed: Object.freeze(changed),
       unchanged: Object.freeze(unchanged),
       throttled: Object.freeze(throttled),
       skipped: Object.freeze(skipped),
     });
+
+    // After the re-arm and after all state has settled, so a callback that
+    // renders observes the flushed state, and one that requests more work finds
+    // the wake-up already computed for what remained.
+    this.#onFlush?.(report);
+
+    return report;
   }
 
   /** When the scheduler will next wake, or `undefined` if it is idle. */
