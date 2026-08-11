@@ -82,20 +82,40 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
   const updatePlacement = useCallback((instanceId: string, updater: (prev: WidgetPlacementRecord) => WidgetPlacementRecord) => {
     setPlacements((prev) => {
       const next = new Map(prev);
-      const existing = next.get(instanceId);
-      if (existing) {
-        const updated = updater(existing);
-        next.set(instanceId, updated);
-        layoutStorage.savePlacements(next);
-      }
+      const existing = next.get(instanceId) ?? {
+        instanceId,
+        x: 24,
+        y: 24,
+        width: 300,
+        height: 180,
+        isLocked: false,
+        sizePreset: 'medium',
+      };
+      const updated = updater(existing);
+      next.set(instanceId, updated);
+      layoutStorage.savePlacements(next);
       return next;
     });
   }, []);
 
   // Drag Start
   const onDragStart = useCallback((instanceId: string, e: React.PointerEvent) => {
-    const current = placements.get(instanceId);
-    if (!current || current.isLocked) return;
+    const current = placements.get(instanceId) ?? {
+      instanceId,
+      x: 24,
+      y: 24,
+      width: 300,
+      height: 180,
+      isLocked: false,
+      sizePreset: 'medium',
+    };
+    if (current.isLocked) return;
+
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // fallback
+    }
 
     setEditingInstanceId(instanceId);
     dragRef.current = {
@@ -109,8 +129,22 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
 
   // Resize Start
   const onResizeStart = useCallback((instanceId: string, e: React.PointerEvent) => {
-    const current = placements.get(instanceId);
-    if (!current || current.isLocked) return;
+    const current = placements.get(instanceId) ?? {
+      instanceId,
+      x: 24,
+      y: 24,
+      width: 300,
+      height: 180,
+      isLocked: false,
+      sizePreset: 'medium',
+    };
+    if (current.isLocked) return;
+
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // fallback
+    }
 
     setEditingInstanceId(instanceId);
     resizeRef.current = {
@@ -140,14 +174,14 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
         const guides: SnapGuide[] = [];
         const threshold = 8;
         const workWidth = window.innerWidth;
-        const workHeight = window.innerHeight;
 
         // Snap to Screen Edges
         if (Math.abs(snappedX - 24) < threshold) {
           snappedX = 24;
           guides.push({ orientation: 'vertical', position: 24 });
         }
-        const rightEdge = workWidth - (placements.get(instanceId)?.width ?? 300) - 24;
+        const currentWidth = placements.get(instanceId)?.width ?? 300;
+        const rightEdge = workWidth - currentWidth - 24;
         if (Math.abs(snappedX - rightEdge) < threshold) {
           snappedX = rightEdge;
           guides.push({ orientation: 'vertical', position: workWidth - 24 });

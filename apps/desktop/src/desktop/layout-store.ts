@@ -31,8 +31,9 @@ export function createDefaultPlacements(workArea: { width: number; height: numbe
   const rightX = Math.max(margin, workArea.width - colWidth - margin);
 
   const defaults: WidgetPlacementRecord[] = [
+    // Clock
     {
-      instanceId: 'instance-clock',
+      instanceId: 'devdesk.clock#1',
       x: rightX,
       y: margin,
       width: colWidth,
@@ -40,8 +41,9 @@ export function createDefaultPlacements(workArea: { width: number; height: numbe
       isLocked: false,
       sizePreset: 'medium',
     },
+    // Calendar
     {
-      instanceId: 'instance-calendar',
+      instanceId: 'devdesk.calendar#1',
       x: rightX,
       y: margin + 180 + 16,
       width: colWidth,
@@ -49,8 +51,9 @@ export function createDefaultPlacements(workArea: { width: number; height: numbe
       isLocked: false,
       sizePreset: 'month',
     },
+    // Session
     {
-      instanceId: 'instance-session',
+      instanceId: 'devdesk.session#1',
       x: rightX,
       y: margin + 180 + 16 + 260 + 16,
       width: colWidth,
@@ -58,8 +61,9 @@ export function createDefaultPlacements(workArea: { width: number; height: numbe
       isLocked: false,
       sizePreset: 'compact',
     },
+    // System
     {
-      instanceId: 'instance-system',
+      instanceId: 'devdesk.system#1',
       x: margin,
       y: margin,
       width: colWidth,
@@ -67,8 +71,9 @@ export function createDefaultPlacements(workArea: { width: number; height: numbe
       isLocked: false,
       sizePreset: 'standard',
     },
+    // Activity
     {
-      instanceId: 'instance-activity',
+      instanceId: 'devdesk.activity#1',
       x: margin,
       y: margin + 220 + 16,
       width: colWidth,
