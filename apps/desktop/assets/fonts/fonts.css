@@ -1,0 +1,91 @@
+/*
+ * Local fonts.
+ *
+ * `AC-OFF-2.1` allows zero outbound network requests with default settings, and
+ * `AC-OFF-1.1` requires first run to succeed on a machine with no network
+ * adapter. A `fonts.googleapis.com` stylesheet violates both, and the app's own
+ * CSP (`style-src 'self'`, `font-src 'self'` in `tauri.conf.json`) blocks it
+ * anyway — the request fails and the desktop silently renders in fallback
+ * faces.
+ *
+ * So the faces are declared here against files served from the app itself.
+ * `font-display: swap` keeps text visible while a face loads, which matters
+ * because the shell reveals on first paint: a blocking font swap would push the
+ * reveal out by however long decoding takes.
+ *
+ * ## The files
+ *
+ * The `.woff2` binaries are not in the repository. They cannot be fabricated,
+ * and downloading them is exactly the network access these rules forbid — so
+ * this stylesheet degrades honestly: every rule below has a system fallback in
+ * its stack, and the desktop renders correctly with no files present.
+ *
+ * To ship the intended typography, drop these files into this directory:
+ *
+ *   inter-400.woff2  inter-500.woff2  inter-600.woff2  inter-700.woff2
+ *   jetbrains-mono-400.woff2  jetbrains-mono-500.woff2
+ *
+ * Both families are SIL Open Font License 1.1, which permits redistribution
+ * inside an application bundle. `SEC-20` — a bundled font is an asset rather
+ * than a runtime dependency, so it adds no transitive surface.
+ */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./inter-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./inter-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./inter-600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./inter-700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./jetbrains-mono-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./jetbrains-mono-500.woff2') format('woff2');
+}
+
+/*
+ * The stacks the shell should use.
+ *
+ * Exposed as custom properties so a stylesheet names the intent rather than
+ * repeating a font list, and so the fallbacks are declared once. Every stack
+ * ends in a system face that exists on a clean Windows install.
+ */
+:root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}

@@ -39,8 +39,10 @@ import {
 import { monitorId } from '@devdesk/contracts';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { CLOCK_CADENCE_MS, CLOCK_WIDGET, type ClockState, type ClockView } from './clock/clock';
-import { CLOCK_MANIFEST } from './clock/manifest';
+import { CLOCK_CADENCE_MS, CLOCK_WIDGET } from '../desktop/widgets/clock';
+import type { DesktopWidgetState as ClockState } from '../desktop/widgets/state';
+import type { DesktopWidgetView as ClockView } from '../desktop/widgets/view';
+import { CLOCK_MANIFEST } from '../desktop/widgets/clock';
 
 // ------------------------------------------------------------- fixtures --
 
@@ -179,7 +181,7 @@ describe('create', () => {
   it('renders the injected time, not the wall clock', async () => {
     await world.binder.place(instance(1), world.time.now());
     expect(view().time).toBe('09:05');
-    expect(view().date).toBe('Sat 8 Aug');
+    expect(view().date).toBe('Saturday, 8 August');
   });
 
   it('reads its colours from the theme', async () => {
