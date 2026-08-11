@@ -24,6 +24,7 @@ pub mod error;
 pub mod feature;
 pub mod platform;
 pub mod unsupported;
+pub mod window;
 
 #[cfg(target_os = "windows")]
 mod win;
@@ -37,6 +38,7 @@ pub use error::PlatformError;
 pub use feature::{PlatformFeature, Support};
 pub use platform::{Platform, PlatformId, WindowSystem};
 pub use unsupported::UnsupportedBackend;
+pub use window::{InputRegion, ShellEvent, ShellEventSink, SurfaceLayer, WindowHandle};
 
 #[cfg(target_os = "windows")]
 pub use win::WindowsBackend;

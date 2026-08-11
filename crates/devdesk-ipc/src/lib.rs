@@ -86,8 +86,16 @@ pub struct DisplayInfo {
     pub name: String,
     pub is_primary: bool,
     pub scale_factor: f64,
-    /// The placeable area, excluding taskbars (work area, not bounds).
+    /// The placeable area, excluding taskbars.
     pub work_area: LogicalRectInfo,
+    /// The whole display, including the area under the taskbar.
+    ///
+    /// Both, because in desktop mode a host window covers `bounds` while
+    /// surfaces are placed within `work_area`, and expressing one in terms of
+    /// the other needs their difference (`ADR-0005` `DH-13`). A shell with only
+    /// the work area cannot tell how far its viewport origin is from where the
+    /// placement coordinates start.
+    pub bounds: LogicalRectInfo,
 }
 
 /// The attached displays.
@@ -120,6 +128,8 @@ fn display_describe(host: tauri::State<'_, SurfaceHost>) -> Result<DisplayTopolo
             .iter()
             .map(|monitor| {
                 let area = monitor.logical_work_area();
+                let full = monitor.logical_bounds();
+
                 DisplayInfo {
                     id: monitor.id().to_string(),
                     name: monitor.name.clone(),
@@ -130,6 +140,12 @@ fn display_describe(host: tauri::State<'_, SurfaceHost>) -> Result<DisplayTopolo
                         y: area.origin.y,
                         width: area.size.width,
                         height: area.size.height,
+                    },
+                    bounds: LogicalRectInfo {
+                        x: full.origin.x,
+                        y: full.origin.y,
+                        width: full.size.width,
+                        height: full.size.height,
                     },
                 }
             })
@@ -145,30 +161,25 @@ fn display_describe(host: tauri::State<'_, SurfaceHost>) -> Result<DisplayTopolo
 /// must agree, and a string repeated in two crates is how they stop agreeing.
 pub const SHELL_WINDOW_LABEL: &str = "main";
 
-/// Reveals the shell window after its first paint.
+/// Reveals the calling window after its first paint.
 ///
-/// The shell window is created **hidden** — the same `AC-FRE-1.1` discipline
-/// surfaces get, because the shell flashing white on launch is the same defect
-/// at desktop size. The shell calls this once its first frame has painted, and
+/// Every DevDesk window is created **hidden** — the same `AC-FRE-1.1` discipline
+/// surfaces get, because a window flashing white on launch is the same defect at
+/// desktop size. The shell calls this once its first frame has painted, and
 /// being early is impossible: the window exists before the webview can run.
+///
+/// **The calling window, not [`SHELL_WINDOW_LABEL`].** In desktop mode there is
+/// one host window per monitor and no window called `main` at all (`ADR-0005`
+/// `DH-13`); a hard-coded label would leave every host window hidden forever,
+/// which is `AC-FRE-1.1` failing in the other direction. Tauri supplies the
+/// caller, so the answer is always the window that painted.
 ///
 /// # Errors
 ///
-/// [`IpcError::NotFound`] if the shell window does not exist, which is a
-/// composition-root bug, and [`IpcError::Internal`] if the windowing system
-/// refused to show it.
+/// [`IpcError::Internal`] if the windowing system refused to show the window.
 #[tauri::command]
 #[specta::specta]
-fn shell_report_first_frame(app: tauri::AppHandle) -> Result<(), IpcError> {
-    use tauri::Manager;
-
-    let window = app
-        .get_webview_window(SHELL_WINDOW_LABEL)
-        .ok_or_else(|| IpcError::NotFound {
-            kind: "window".to_owned(),
-            id: SHELL_WINDOW_LABEL.to_owned(),
-        })?;
-
+fn shell_report_first_frame(window: tauri::WebviewWindow) -> Result<(), IpcError> {
     window.show().map_err(|_| IpcError::Internal {
         trace_id: next_trace_id(),
     })

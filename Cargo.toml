@@ -15,6 +15,11 @@ publish = false
 # its own version of a shared dependency is prohibited: divergent versions of serde or
 # tokio across crates produce link-time duplication that presents as trait mismatches.
 [workspace.dependencies]
+# The cfg-free path to a native window handle. DR-6 prohibits #[cfg(target_os)]
+# outside devdesk-platform, and this is how the host reaches an HWND without one:
+# a runtime match on an enum that exists on every platform. Already in the tree
+# transitively via tauri.
+raw-window-handle = "0.6"
 serde = { version = "1", features = ["derive"] }
 # Test-only across the workspace: asserting that what claims to be persistable
 # actually round-trips. Already present transitively via tauri.

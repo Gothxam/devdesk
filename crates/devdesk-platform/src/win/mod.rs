@@ -18,17 +18,22 @@
 //! inventing one.
 
 mod edid;
+mod input;
+mod layer;
 mod monitors;
+mod shell;
 mod watcher;
 
 use std::sync::Mutex;
 
 use crate::backend::PlatformBackend;
-use crate::display::{DisplayEventSink, RawMonitorInfo, SubscriptionId};
+use crate::display::{DisplayEventSink, RawMonitorInfo, RawRect, SubscriptionId};
 use crate::error::PlatformError;
 use crate::feature::{PlatformFeature, Support};
 use crate::platform::{Platform, PlatformId, WindowSystem};
+use crate::window::{ShellEventSink, SurfaceLayer, WindowHandle};
 
+use shell::ShellWatcherHandle;
 use watcher::WatcherHandle;
 
 /// The Win32 implementation of [`PlatformBackend`].
@@ -40,6 +45,11 @@ pub struct WindowsBackend {
     /// happen at startup and shutdown, so contention is not a consideration and
     /// the simpler primitive is the correct one.
     watchers: Mutex<Vec<(SubscriptionId, WatcherHandle)>>,
+
+    /// Live shell-restart subscriptions. Separate from `watchers` because the
+    /// two carry different handles and are torn down independently; sharing one
+    /// list would mean a sum type whose only purpose is to be matched on again.
+    shell_watchers: Mutex<Vec<(SubscriptionId, ShellWatcherHandle)>>,
     next_id: Mutex<u64>,
 }
 
@@ -51,6 +61,21 @@ impl WindowsBackend {
 
     fn platform_id() -> PlatformId {
         PlatformId::new(Platform::Windows, WindowSystem::Win32)
+    }
+
+    /// The next subscription id.
+    ///
+    /// Shared by both subscription kinds so an id is unique across the backend
+    /// rather than only within its own list — passing a display id to
+    /// `unsubscribe_shell_restart` then finds nothing instead of finding the
+    /// wrong watcher.
+    fn allocate_id(&self, call: &'static str) -> Result<SubscriptionId, PlatformError> {
+        let Ok(mut next) = self.next_id.lock() else {
+            return Err(PlatformError::OsCall { call, code: 0 });
+        };
+
+        *next += 1;
+        Ok(SubscriptionId(*next))
     }
 }
 
@@ -85,6 +110,25 @@ impl PlatformBackend for WindowsBackend {
                 note: "read from the EDID; absent for virtual displays and for panels \
                        that do not populate the serial field",
             },
+
+            PlatformFeature::ClickThrough
+            | PlatformFeature::InputRegion
+            | PlatformFeature::CaptureExclusion
+            | PlatformFeature::ShellRestartEvents => Support::Full,
+
+            // DH-5: answered before anything is attached, so the UI never offers
+            // desktop mode on a machine where it cannot work (XP-2). A session
+            // with no Explorer desktop — Server Core, some kiosk and remote
+            // configurations, a shell replacement — has no Progman to host it.
+            PlatformFeature::WallpaperLayer => {
+                if layer::is_supported() {
+                    Support::Full
+                } else {
+                    Support::Unsupported {
+                        reason: "this session has no Explorer desktop to attach to",
+                    }
+                }
+            }
         }
     }
 
@@ -135,5 +179,120 @@ impl PlatformBackend for WindowsBackend {
 
         // An unknown id is not an error — see the trait documentation.
         Ok(())
+    }
+
+    fn attach_to_layer(
+        &self,
+        window: WindowHandle,
+        layer: SurfaceLayer,
+    ) -> Result<(), PlatformError> {
+        layer::attach(window, layer)
+    }
+
+    fn detach_from_layer(&self, window: WindowHandle) -> Result<(), PlatformError> {
+        layer::detach(window)
+    }
+
+    fn set_click_through(&self, window: WindowHandle, enabled: bool) -> Result<(), PlatformError> {
+        input::set_click_through(window, enabled)
+    }
+
+    fn set_input_region(
+        &self,
+        window: WindowHandle,
+        regions: &[RawRect],
+    ) -> Result<(), PlatformError> {
+        input::set_input_region(window, regions)
+    }
+
+    fn exclude_from_capture(
+        &self,
+        window: WindowHandle,
+        excluded: bool,
+    ) -> Result<(), PlatformError> {
+        input::exclude_from_capture(window, excluded)
+    }
+
+    fn subscribe_shell_restart(
+        &self,
+        sink: ShellEventSink,
+    ) -> Result<SubscriptionId, PlatformError> {
+        let handle = shell::start(sink)?;
+        let id = self.allocate_id("subscribe_shell_restart")?;
+
+        let Ok(mut watchers) = self.shell_watchers.lock() else {
+            // The registry is unusable, so this subscription can never be torn
+            // down through it. Stopping it here is the only way to avoid leaking
+            // a thread that would outlive every handle to it.
+            handle.stop();
+
+            return Err(PlatformError::OsCall {
+                call: "subscribe_shell_restart",
+                code: 0,
+            });
+        };
+        watchers.push((id, handle));
+
+        Ok(id)
+    }
+
+    fn unsubscribe_shell_restart(&self, id: SubscriptionId) -> Result<(), PlatformError> {
+        let Ok(mut watchers) = self.shell_watchers.lock() else {
+            return Err(PlatformError::OsCall {
+                call: "unsubscribe_shell_restart",
+                code: 0,
+            });
+        };
+
+        if let Some(index) = watchers.iter().position(|(each, _)| *each == id) {
+            let (_, handle) = watchers.remove(index);
+
+            // Dropped before stopping: `stop` joins the watcher thread, and
+            // holding the registry lock across a join is how a shutdown deadlocks
+            // against a callback that is trying to subscribe.
+            drop(watchers);
+            handle.stop();
+        }
+
+        // An unknown id is not an error — see the trait documentation.
+        Ok(())
+    }
+}
+
+/// A NUL-terminated UTF-16 string for a Win32 `W` call.
+fn to_wide(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// This thread's last system error.
+fn last_error() -> u32 {
+    // SAFETY: reads a thread-local value; no pointers involved.
+    unsafe { windows::Win32::Foundation::GetLastError() }.0
+}
+
+/// Clears this thread's last system error.
+///
+/// Needed before any call whose failure is indistinguishable from success by
+/// return value alone — `SetWindowLongPtrW` returns `0` both for "the previous
+/// value was 0" and for failure, and a stale error from an unrelated call would
+/// otherwise be reported as this one's.
+fn clear_last_error() {
+    // SAFETY: writes a thread-local value; no pointers involved.
+    unsafe { windows::Win32::Foundation::SetLastError(windows::Win32::Foundation::WIN32_ERROR(0)) };
+}
+
+/// Turns a `windows` error into a [`PlatformError::OsCall`].
+///
+/// The crate reports failures as an `HRESULT`, and for these APIs it is a
+/// wrapped Win32 code. The low sixteen bits are that code; the rest is the
+/// facility, which says only "this came from Win32" and is not worth carrying
+/// into a message a user may read.
+fn os_call(call: &'static str, error: &windows::core::Error) -> PlatformError {
+    let hresult = error.code().0;
+
+    PlatformError::OsCall {
+        call,
+        #[allow(clippy::cast_sign_loss)]
+        code: (hresult as u32) & 0xFFFF,
     }
 }

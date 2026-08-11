@@ -11,10 +11,11 @@
 //! displays attached.
 
 use crate::backend::PlatformBackend;
-use crate::display::{DisplayEventSink, RawMonitorInfo, SubscriptionId};
+use crate::display::{DisplayEventSink, RawMonitorInfo, RawRect, SubscriptionId};
 use crate::error::PlatformError;
 use crate::feature::{PlatformFeature, Support};
 use crate::platform::PlatformId;
+use crate::window::{ShellEventSink, SurfaceLayer, WindowHandle};
 
 /// A backend that supports nothing and says why.
 #[derive(Debug, Clone, Copy)]
@@ -68,6 +69,65 @@ impl PlatformBackend for UnsupportedBackend {
         // Teardown of a subscription that was never established succeeds. The
         // failure was at `subscribe`, and reporting it twice makes shutdown
         // paths carry error handling for a failure they did not cause.
+        Ok(())
+    }
+
+    fn attach_to_layer(
+        &self,
+        _window: WindowHandle,
+        layer: SurfaceLayer,
+    ) -> Result<(), PlatformError> {
+        if layer.needs_attachment() {
+            Err(self.unsupported(PlatformFeature::WallpaperLayer))
+        } else {
+            // `Normal` needs no attachment on any platform — an ordinary window
+            // is already in that band. Succeeding here is not a silent
+            // degradation (`AP-15`): the caller asked for the state the window
+            // is already in.
+            Ok(())
+        }
+    }
+
+    fn detach_from_layer(&self, _window: WindowHandle) -> Result<(), PlatformError> {
+        // Detaching a window that was never attached is not an error anywhere,
+        // and a platform that cannot attach has nothing to undo. Reporting a
+        // failure here would make every teardown path check a result it cannot
+        // act on.
+        Ok(())
+    }
+
+    fn set_click_through(
+        &self,
+        _window: WindowHandle,
+        _enabled: bool,
+    ) -> Result<(), PlatformError> {
+        Err(self.unsupported(PlatformFeature::ClickThrough))
+    }
+
+    fn set_input_region(
+        &self,
+        _window: WindowHandle,
+        _regions: &[RawRect],
+    ) -> Result<(), PlatformError> {
+        Err(self.unsupported(PlatformFeature::InputRegion))
+    }
+
+    fn exclude_from_capture(
+        &self,
+        _window: WindowHandle,
+        _excluded: bool,
+    ) -> Result<(), PlatformError> {
+        Err(self.unsupported(PlatformFeature::CaptureExclusion))
+    }
+
+    fn subscribe_shell_restart(
+        &self,
+        _sink: ShellEventSink,
+    ) -> Result<SubscriptionId, PlatformError> {
+        Err(self.unsupported(PlatformFeature::ShellRestartEvents))
+    }
+
+    fn unsubscribe_shell_restart(&self, _id: SubscriptionId) -> Result<(), PlatformError> {
         Ok(())
     }
 }

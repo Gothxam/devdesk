@@ -59,18 +59,22 @@ async displayDescribe() : Promise<Result<DisplayTopologyInfo, IpcError>> {
 }
 },
 /**
- * Reveals the shell window after its first paint.
+ * Reveals the calling window after its first paint.
  * 
- * The shell window is created **hidden** — the same `AC-FRE-1.1` discipline
- * surfaces get, because the shell flashing white on launch is the same defect
- * at desktop size. The shell calls this once its first frame has painted, and
+ * Every DevDesk window is created **hidden** — the same `AC-FRE-1.1` discipline
+ * surfaces get, because a window flashing white on launch is the same defect at
+ * desktop size. The shell calls this once its first frame has painted, and
  * being early is impossible: the window exists before the webview can run.
+ * 
+ * **The calling window, not [`SHELL_WINDOW_LABEL`].** In desktop mode there is
+ * one host window per monitor and no window called `main` at all (`ADR-0005`
+ * `DH-13`); a hard-coded label would leave every host window hidden forever,
+ * which is `AC-FRE-1.1` failing in the other direction. Tauri supplies the
+ * caller, so the answer is always the window that painted.
  * 
  * # Errors
  * 
- * [`IpcError::NotFound`] if the shell window does not exist, which is a
- * composition-root bug, and [`IpcError::Internal`] if the windowing system
- * refused to show it.
+ * [`IpcError::Internal`] if the windowing system refused to show the window.
  */
 async shellReportFirstFrame() : Promise<Result<null, IpcError>> {
     try {
@@ -194,9 +198,19 @@ export type DisplayInfo = { id: string;
  */
 name: string; is_primary: boolean; scale_factor: number; 
 /**
- * The placeable area, excluding taskbars (work area, not bounds).
+ * The placeable area, excluding taskbars.
  */
-work_area: LogicalRectInfo }
+work_area: LogicalRectInfo; 
+/**
+ * The whole display, including the area under the taskbar.
+ * 
+ * Both, because in desktop mode a host window covers `bounds` while
+ * surfaces are placed within `work_area`, and expressing one in terms of
+ * the other needs their difference (`ADR-0005` `DH-13`). A shell with only
+ * the work area cannot tell how far its viewport origin is from where the
+ * placement coordinates start.
+ */
+bounds: LogicalRectInfo }
 /**
  * The attached displays.
  */

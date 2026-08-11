@@ -9,10 +9,11 @@
 //! platform is indistinguishable from a capability nobody implemented, and the
 //! parity test in `tests` would certify it as correct.
 
-use crate::display::{DisplayEventSink, RawMonitorInfo, SubscriptionId};
+use crate::display::{DisplayEventSink, RawMonitorInfo, RawRect, SubscriptionId};
 use crate::error::PlatformError;
 use crate::feature::{PlatformFeature, Support};
 use crate::platform::PlatformId;
+use crate::window::{ShellEventSink, SurfaceLayer, WindowHandle};
 
 /// The operating-system capabilities DevDesk depends on.
 pub trait PlatformBackend: Send + Sync + 'static {
@@ -63,4 +64,99 @@ pub trait PlatformBackend: Send + Sync + 'static {
     /// unknown or already-ended id is **not** an error: teardown ordering is not
     /// something a caller should have to reason about during shutdown.
     fn unsubscribe_display_changes(&self, id: SubscriptionId) -> Result<(), PlatformError>;
+
+    // ------------------------------------------------------------ windows --
+
+    /// Attaches a DevDesk-created window to a z-order band.
+    ///
+    /// `ADR-0005` `DH-2`: the window **must** be one DevDesk created. Passing a
+    /// window belonging to another process is prohibited, and the handle type
+    /// makes it awkward rather than impossible — the obligation is the caller's.
+    ///
+    /// Every [`SurfaceLayer`] is accepted on every platform (`DH-22`). A caller
+    /// asking whether this machine can do wallpaper needs an answer, not a
+    /// compile error, so the ones a platform cannot do fail at runtime with a
+    /// reason.
+    ///
+    /// # Errors
+    ///
+    /// [`PlatformError::Unsupported`] where the band has no attachment path, and
+    /// on any failure in the attachment sequence (`DH-6`). Never a silent no-op
+    /// (`XP-3`, `AP-15`), and never a partial attach (`DH-4`).
+    fn attach_to_layer(
+        &self,
+        window: WindowHandle,
+        layer: SurfaceLayer,
+    ) -> Result<(), PlatformError>;
+
+    /// Returns a window to ordinary top-level behaviour.
+    ///
+    /// # Errors
+    ///
+    /// [`PlatformError::Unsupported`] where attachment is unsupported. A window
+    /// that was never attached is **not** an error, for the same reason an
+    /// already-ended subscription is not: teardown ordering is not the caller's
+    /// problem.
+    fn detach_from_layer(&self, window: WindowHandle) -> Result<(), PlatformError>;
+
+    /// Makes a whole window transparent to input, or takes it back.
+    ///
+    /// Independent of attachment (`DH-19`): meaningful for any window on any
+    /// platform that has one.
+    ///
+    /// # Errors
+    ///
+    /// [`PlatformError::Unsupported`] where input transparency does not exist.
+    fn set_click_through(&self, window: WindowHandle, enabled: bool) -> Result<(), PlatformError>;
+
+    /// Admits input only inside these rectangles.
+    ///
+    /// `DH-17`: the union of the surfaces the compositor reports as
+    /// interactive, so a click that lands on the desktop between two widgets
+    /// reaches the desktop. An **empty** slice admits no input at all, which is
+    /// different from never calling this — the latter admits everything.
+    ///
+    /// Rectangles are in the window's own client coordinates.
+    ///
+    /// # Errors
+    ///
+    /// [`PlatformError::Unsupported`] where input regions do not exist.
+    fn set_input_region(
+        &self,
+        window: WindowHandle,
+        regions: &[RawRect],
+    ) -> Result<(), PlatformError>;
+
+    /// Excludes a window from screen capture, or stops excluding it.
+    ///
+    /// # Errors
+    ///
+    /// [`PlatformError::Unsupported`] where capture exclusion does not exist.
+    fn exclude_from_capture(
+        &self,
+        window: WindowHandle,
+        excluded: bool,
+    ) -> Result<(), PlatformError>;
+
+    /// Subscribes to shell restarts.
+    ///
+    /// `DH-10`: the event is a **hint**. The handler re-runs attachment from the
+    /// beginning rather than trusting anything the event carries, for the same
+    /// reason `WD-6` re-queries on a display change.
+    ///
+    /// # Errors
+    ///
+    /// [`PlatformError::Unsupported`] where the shell publishes no such signal.
+    fn subscribe_shell_restart(
+        &self,
+        sink: ShellEventSink,
+    ) -> Result<SubscriptionId, PlatformError>;
+
+    /// Ends a shell-restart subscription.
+    ///
+    /// # Errors
+    ///
+    /// [`PlatformError::Unsupported`] where subscriptions do not exist. An
+    /// unknown id is not an error.
+    fn unsubscribe_shell_restart(&self, id: SubscriptionId) -> Result<(), PlatformError>;
 }

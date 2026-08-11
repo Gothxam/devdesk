@@ -16,6 +16,7 @@ use crate::error::PlatformError;
 use crate::feature::{PlatformFeature, Support};
 use crate::platform::{Platform, PlatformId, WindowSystem};
 use crate::unsupported::UnsupportedBackend;
+use crate::window::{ShellEvent, ShellEventSink, SurfaceLayer, WindowHandle};
 
 fn unsupported_backend() -> UnsupportedBackend {
     UnsupportedBackend::new(
@@ -181,4 +182,181 @@ fn a_display_subscription_can_be_established_and_torn_down() {
     backend
         .unsubscribe_display_changes(id)
         .expect("teardown must succeed");
+}
+
+// -------------------------------------------------------------- ADR-0005 --
+
+/// A handle that names no window.
+///
+/// Every assertion below is about the answer the backend gives *before* it
+/// touches the window, so the handle never has to be real. A test that created
+/// a genuine window would be testing Win32, not this contract.
+fn nowhere() -> WindowHandle {
+    WindowHandle::from_owned_window(0)
+}
+
+#[test]
+fn the_normal_band_needs_no_attachment_anywhere() {
+    // DH-22: the enum is not narrowed per platform. `Normal` is where an
+    // ordinary window already is, so asking for it succeeds even on a backend
+    // that can attach to nothing — the caller asked for the state it is in.
+    assert!(!SurfaceLayer::Normal.needs_attachment());
+
+    for layer in [
+        SurfaceLayer::Wallpaper,
+        SurfaceLayer::Desktop,
+        SurfaceLayer::Overlay,
+        SurfaceLayer::System,
+    ] {
+        assert!(layer.needs_attachment(), "{layer} must need attachment");
+    }
+
+    assert!(unsupported_backend()
+        .attach_to_layer(nowhere(), SurfaceLayer::Normal)
+        .is_ok());
+}
+
+#[test]
+fn an_unimplemented_platform_refuses_the_wallpaper_band_with_a_reason() {
+    // DH-6: never a silent no-op. The reason is what turns "my widgets are not
+    // on the desktop" into something a user can act on.
+    let backend = unsupported_backend();
+
+    match backend.attach_to_layer(nowhere(), SurfaceLayer::Wallpaper) {
+        Err(PlatformError::Unsupported {
+            feature, reason, ..
+        }) => {
+            assert_eq!(feature, PlatformFeature::WallpaperLayer);
+            assert!(!reason.trim().is_empty());
+        }
+        other => panic!("expected Unsupported, got {other:?}"),
+    }
+}
+
+#[test]
+fn every_window_capability_names_the_feature_it_is_missing() {
+    // A caller deciding whether to offer desktop mode needs to know *which*
+    // capability is absent, not merely that something is. Reporting the wrong
+    // feature would send it down the wrong degradation path (XP-2).
+    let backend = unsupported_backend();
+
+    let attempts: [(Result<(), PlatformError>, PlatformFeature); 3] = [
+        (
+            backend.set_click_through(nowhere(), true),
+            PlatformFeature::ClickThrough,
+        ),
+        (
+            backend.set_input_region(nowhere(), &[]),
+            PlatformFeature::InputRegion,
+        ),
+        (
+            backend.exclude_from_capture(nowhere(), true),
+            PlatformFeature::CaptureExclusion,
+        ),
+    ];
+
+    for (result, expected) in attempts {
+        match result {
+            Err(PlatformError::Unsupported {
+                feature, reason, ..
+            }) => {
+                assert_eq!(feature, expected);
+                assert!(!reason.trim().is_empty(), "{expected} gave no reason");
+            }
+            other => panic!("expected Unsupported for {expected}, got {other:?}"),
+        }
+    }
+
+    match backend.subscribe_shell_restart(ShellEventSink::new(|_| {})) {
+        Err(PlatformError::Unsupported { feature, .. }) => {
+            assert_eq!(feature, PlatformFeature::ShellRestartEvents);
+        }
+        other => panic!("expected Unsupported, got {other:?}"),
+    }
+}
+
+#[test]
+fn teardown_of_something_that_never_started_succeeds() {
+    // Same reason as display subscriptions: shutdown ordering is not the
+    // caller's problem, and a detach of a window that was never attached is a
+    // no-op rather than a failure.
+    let backend = unsupported_backend();
+
+    assert!(backend.detach_from_layer(nowhere()).is_ok());
+    assert!(backend
+        .unsubscribe_shell_restart(crate::display::SubscriptionId(9_999))
+        .is_ok());
+}
+
+/// The shell watcher must establish and tear down without leaking its thread.
+///
+/// The same production-only failure as the display watcher: a loop that never
+/// stops keeps running past shutdown, and the process looks exited while a
+/// thread is still pumping.
+#[test]
+fn a_shell_subscription_can_be_established_and_torn_down() {
+    let backend = crate::current_backend();
+
+    if !backend
+        .supports(PlatformFeature::ShellRestartEvents)
+        .is_available()
+    {
+        return;
+    }
+
+    let sink = ShellEventSink::new(|_event| {});
+    let id = backend
+        .subscribe_shell_restart(sink)
+        .expect("subscription must succeed where the feature is available");
+
+    backend
+        .unsubscribe_shell_restart(id)
+        .expect("teardown must succeed");
+}
+
+#[test]
+fn subscription_ids_are_unique_across_both_kinds() {
+    // A shared counter rather than one per list: handing the same number to two
+    // kinds of subscription would make `unsubscribe` on the wrong one silently
+    // stop the wrong watcher.
+    let backend = crate::current_backend();
+
+    if !backend
+        .supports(PlatformFeature::DisplayChangeEvents)
+        .is_available()
+        || !backend
+            .supports(PlatformFeature::ShellRestartEvents)
+            .is_available()
+    {
+        return;
+    }
+
+    let display = backend
+        .subscribe_display_changes(DisplayEventSink::new(|_| {}))
+        .expect("display subscription");
+    let shell = backend
+        .subscribe_shell_restart(ShellEventSink::new(|_| {}))
+        .expect("shell subscription");
+
+    assert_ne!(display, shell, "ids must not collide across kinds");
+
+    backend.unsubscribe_display_changes(display).unwrap();
+    backend.unsubscribe_shell_restart(shell).unwrap();
+}
+
+#[test]
+fn a_shell_sink_delivers_what_it_is_given() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let count = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&count);
+
+    let sink = ShellEventSink::new(move |_event| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+
+    sink.emit(ShellEvent::Restarted);
+
+    assert_eq!(count.load(Ordering::SeqCst), 1);
 }

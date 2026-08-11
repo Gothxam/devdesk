@@ -30,6 +30,21 @@ pub enum PlatformFeature {
     MonitorConnector,
     /// The exact refresh rate, as a rational rather than a rounded integer.
     ExactRefreshRate,
+
+    /// Attaching a window behind the desktop icons (`ADR-0005`, `WD-8`).
+    ///
+    /// Windows reparents into `WorkerW`. macOS needs an `NSWindow` desktop
+    /// level; Linux needs `wlr-layer-shell` and has no path at all on GNOME
+    /// Wayland, which is why `XP-6` makes X11 and Wayland answer separately.
+    WallpaperLayer,
+    /// Making a whole window transparent to input (`DH-19`).
+    ClickThrough,
+    /// Admitting input only inside given rectangles (`DH-17`).
+    InputRegion,
+    /// Excluding a window from screen capture.
+    CaptureExclusion,
+    /// Notification when the shell restarts (`DH-10`).
+    ShellRestartEvents,
 }
 
 impl PlatformFeature {
@@ -45,6 +60,11 @@ impl PlatformFeature {
         Self::MonitorSerial,
         Self::MonitorConnector,
         Self::ExactRefreshRate,
+        Self::WallpaperLayer,
+        Self::ClickThrough,
+        Self::InputRegion,
+        Self::CaptureExclusion,
+        Self::ShellRestartEvents,
     ];
 }
 
@@ -58,6 +78,11 @@ impl fmt::Display for PlatformFeature {
             Self::MonitorSerial => "monitor-serial",
             Self::MonitorConnector => "monitor-connector",
             Self::ExactRefreshRate => "exact-refresh-rate",
+            Self::WallpaperLayer => "wallpaper-layer",
+            Self::ClickThrough => "click-through",
+            Self::InputRegion => "input-region",
+            Self::CaptureExclusion => "capture-exclusion",
+            Self::ShellRestartEvents => "shell-restart-events",
         };
         f.write_str(name)
     }
