@@ -1,19 +1,24 @@
 /**
- * Stage 5A — Desktop Root Component
+ * Stage 6 — Desktop Root Component (UI Interaction Layer)
  *
- * React's job here is deliberately small: take the frame the compositor
- * presented and the views the scheduler reported, and put them on screen.
- * Consumes `@devdesk/effects` glass custom properties (AP-3).
+ * Architecture Invariant:
+ * `desktop-root.tsx` holds ONLY UI interaction state (`isEditMode`, `editingInstanceId`,
+ * `contextMenuState`, `snapGuides`). Widget placements are read from and written to
+ * `layoutStorage` (LayoutStorage interface adapter), while `CompositionScene` remains
+ * the rendering source of truth.
  */
 
 import { parseWidgetInstanceId, type WidgetInstanceId } from '@devdesk/contracts';
 import type { CompositionFrame } from '@devdesk/widget-engine';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ClockView } from '../widgets/clock/clock';
 import type { DesktopController } from './controller';
+import { ContextMenu, type ContextMenuState } from './components/context-menu';
+import { EditOverlay, type SnapGuide } from './components/edit-overlay';
 import { SurfaceCard } from './components/surface-card';
 import { Wallpaper } from './components/wallpaper';
+import { layoutStorage, type WidgetPlacementRecord } from './layout-store';
 
 export interface HitReadout {
   readonly surfaceId: string | undefined;
@@ -27,47 +32,250 @@ export interface DesktopRootProps {
   readonly onHit: (hit: HitReadout) => void;
 }
 
-/** The desktop canvas: composed surfaces rendered via SurfaceCard */
 export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
   const canvas = useRef<HTMLDivElement>(null);
-  const [hitSurface, setHitSurface] = useState<string | undefined>(undefined);
 
-  const onPointerDown = useCallback(
-    (event: React.PointerEvent) => {
-      const bounds = canvas.current?.getBoundingClientRect();
-      if (!bounds) return;
+  // UI Interaction State ONLY
+  const [isEditMode, setIsEditMode] = useState<boolean>(false);
+  const [editingInstanceId, setEditingInstanceId] = useState<string | undefined>(undefined);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [snapGuides, setSnapGuides] = useState<readonly SnapGuide[]>([]);
 
-      const point = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
-      const hit = props.controller.hitAt(point);
+  // Placements cache synced with LayoutStorage adapter
+  const [placements, setPlacements] = useState<Map<string, WidgetPlacementRecord>>(() => {
+    return layoutStorage.loadPlacements({
+      width: typeof window !== 'undefined' ? window.innerWidth : 1920,
+      height: typeof window !== 'undefined' ? window.innerHeight : 1080,
+    });
+  });
 
-      setHitSurface(hit?.surfaceId);
-      props.onHit({ surfaceId: hit?.surfaceId, at: point });
+  // Dragging / Resizing Tracking Refs
+  const dragRef = useRef<{
+    instanceId: string;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
+
+  const resizeRef = useRef<{
+    instanceId: string;
+    startX: number;
+    startY: number;
+    origWidth: number;
+    origHeight: number;
+  } | null>(null);
+
+  // Toggle Edit Mode via Ctrl+E
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setIsEditMode((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // Save placements helper
+  const updatePlacement = useCallback((instanceId: string, updater: (prev: WidgetPlacementRecord) => WidgetPlacementRecord) => {
+    setPlacements((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(instanceId);
+      if (existing) {
+        const updated = updater(existing);
+        next.set(instanceId, updated);
+        layoutStorage.savePlacements(next);
+      }
+      return next;
+    });
+  }, []);
+
+  // Drag Start
+  const onDragStart = useCallback((instanceId: string, e: React.PointerEvent) => {
+    const current = placements.get(instanceId);
+    if (!current || current.isLocked) return;
+
+    setEditingInstanceId(instanceId);
+    dragRef.current = {
+      instanceId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: current.x,
+      origY: current.y,
+    };
+  }, [placements]);
+
+  // Resize Start
+  const onResizeStart = useCallback((instanceId: string, e: React.PointerEvent) => {
+    const current = placements.get(instanceId);
+    if (!current || current.isLocked) return;
+
+    setEditingInstanceId(instanceId);
+    resizeRef.current = {
+      instanceId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origWidth: current.width,
+      origHeight: current.height,
+    };
+  }, [placements]);
+
+  // Pointer Move (Drag & Resize with 8px Grid & Magnetic Snap Guides)
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (dragRef.current) {
+        const { instanceId, startX, startY, origX, origY } = dragRef.current;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        let rawX = origX + dx;
+        let rawY = origY + dy;
+
+        // 8px Grid Snap
+        let snappedX = Math.round(rawX / 8) * 8;
+        let snappedY = Math.round(rawY / 8) * 8;
+
+        const guides: SnapGuide[] = [];
+        const threshold = 8;
+        const workWidth = window.innerWidth;
+        const workHeight = window.innerHeight;
+
+        // Snap to Screen Edges
+        if (Math.abs(snappedX - 24) < threshold) {
+          snappedX = 24;
+          guides.push({ orientation: 'vertical', position: 24 });
+        }
+        const rightEdge = workWidth - (placements.get(instanceId)?.width ?? 300) - 24;
+        if (Math.abs(snappedX - rightEdge) < threshold) {
+          snappedX = rightEdge;
+          guides.push({ orientation: 'vertical', position: workWidth - 24 });
+        }
+        if (Math.abs(snappedY - 24) < threshold) {
+          snappedY = 24;
+          guides.push({ orientation: 'horizontal', position: 24 });
+        }
+
+        setSnapGuides(guides);
+        updatePlacement(instanceId, (prev) => ({ ...prev, x: snappedX, y: snappedY }));
+      } else if (resizeRef.current) {
+        const { instanceId, startX, startY, origWidth, origHeight } = resizeRef.current;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        const newW = Math.max(160, Math.round((origWidth + dx) / 8) * 8);
+        const newH = Math.max(100, Math.round((origHeight + dy) / 8) * 8);
+
+        updatePlacement(instanceId, (prev) => ({ ...prev, width: newW, height: newH }));
+      }
     },
-    [props.controller, props.onHit],
+    [placements, updatePlacement],
   );
+
+  // Pointer Up
+  const onPointerUp = useCallback(() => {
+    dragRef.current = null;
+    resizeRef.current = null;
+    setSnapGuides([]);
+  }, []);
+
+  // Context Menu Handler
+  const onContextMenu = useCallback((instanceId: string | undefined, e: React.MouseEvent) => {
+    setContextMenu({ x: e.clientX, y: e.clientY, instanceId });
+  }, []);
 
   const metrics = props.controller.metrics();
 
   return (
-    <div ref={canvas} onPointerDown={onPointerDown} style={{ position: 'fixed', inset: 0, overflow: 'hidden' }}>
+    <div
+      ref={canvas}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onContextMenu(undefined, e);
+      }}
+      onClick={() => setContextMenu(null)}
+      style={{ position: 'fixed', inset: 0, overflow: 'hidden' }}
+    >
       <Wallpaper />
 
+      <EditOverlay
+        isEditMode={isEditMode}
+        snapGuides={snapGuides}
+        workArea={{ width: window.innerWidth, height: window.innerHeight }}
+      />
+
+      {/* Render Surfaces from Composition Scene (Source of Truth) */}
       {props.frame?.visible.map((surface) => {
         const instance = parseWidgetInstanceId(surface.surfaceId);
-        const isHit = surface.surfaceId === hitSurface;
+        const instanceKey = instance.ok ? instance.value : surface.surfaceId;
         const view = instance.ok ? props.views.get(instance.value) : undefined;
+
+        // Get placement record or fallback
+        const placement = placements.get(instanceKey) ?? {
+          instanceId: instanceKey,
+          x: surface.rect.x,
+          y: surface.rect.y,
+          width: surface.rect.width,
+          height: surface.rect.height,
+          isLocked: false,
+          sizePreset: 'medium',
+        };
 
         return (
           <SurfaceCard
             key={surface.surfaceId}
             surface={surface}
-            isHit={isHit}
+            placement={placement}
+            isEditMode={isEditMode}
+            isHit={false}
             view={view}
             sequence={props.frame?.sequence ?? 0}
             metrics={metrics}
+            onDragStart={onDragStart}
+            onResizeStart={onResizeStart}
+            onContextMenu={(id, e) => onContextMenu(id, e)}
           />
         );
       })}
+
+      {/* Context Menu */}
+      <ContextMenu
+        state={contextMenu}
+        isEditMode={isEditMode}
+        isLocked={contextMenu?.instanceId ? placements.get(contextMenu.instanceId)?.isLocked : false}
+        onClose={() => setContextMenu(null)}
+        onToggleEditMode={() => setIsEditMode((prev) => !prev)}
+        onResizeWidget={(id, preset) => {
+          const presetMap: Record<string, { width: number; height: number }> = {
+            small: { width: 180, height: 120 },
+            medium: { width: 300, height: 180 },
+            large: { width: 380, height: 240 },
+          };
+          const dim = presetMap[preset] ?? { width: 300, height: 180 };
+          updatePlacement(id, (prev) => ({ ...prev, sizePreset: preset as any, ...dim }));
+        }}
+        onToggleLock={(id) => {
+          updatePlacement(id, (prev) => ({ ...prev, isLocked: !prev.isLocked }));
+        }}
+        onRemoveWidget={(id) => {
+          setPlacements((prev) => {
+            const next = new Map(prev);
+            next.delete(id);
+            layoutStorage.savePlacements(next);
+            return next;
+          });
+        }}
+        onResetLayout={() => {
+          const defaults = layoutStorage.resetPlacements({
+            width: window.innerWidth,
+            height: window.innerHeight,
+          });
+          setPlacements(defaults);
+        }}
+      />
     </div>
   );
 }

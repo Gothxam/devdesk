@@ -1,5 +1,5 @@
 /**
- * Stage 5C — Desktop Experience Polish & Visual Composition
+ * Stage 6 — Desktop Interaction & Widget UX Styles
  * Pure CSS using local fonts, ThemeSnapshot custom properties, and AP-3 glass variables.
  */
 
@@ -80,7 +80,6 @@
   background: var(--surface-tint, rgba(14, 17, 24, 0.82));
   border: 1px solid rgba(255, 255, 255, 0.09);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  pointer-events: none;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -91,16 +90,44 @@
               outline 0.25s ease;
 }
 
-.devdesk-surface-card:hover {
-  border-color: rgba(255, 255, 255, 0.22);
-  box-shadow: 0 30px 72px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+/* Resize Corner Handle */
+.devdesk-resize-handle {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 14px;
+  height: 14px;
+  cursor: se-resize;
+  z-index: 100;
+  border-right: 2px solid rgba(129, 140, 248, 0.8);
+  border-bottom: 2px solid rgba(129, 140, 248, 0.8);
+  border-bottom-right-radius: 4px;
 }
 
-.devdesk-surface-card.hit {
-  border-color: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 0 40px rgba(255, 255, 255, 0.22), 0 32px 80px rgba(0, 0, 0, 0.7);
-  outline: 2px solid rgba(255, 255, 255, 0.55);
-  outline-offset: 2px;
+.devdesk-resize-handle:hover {
+  border-color: #6366f1;
+}
+
+/* Context Menu Items */
+.devdesk-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border: none;
+  background: transparent;
+  color: #e4e4e7;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.devdesk-menu-item:hover {
+  background: rgba(99, 102, 241, 0.25);
+  color: #ffffff;
 }
 
 /* Live Tick Animation */

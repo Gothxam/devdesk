@@ -349,3 +349,25 @@ SurfaceManager
   - Preserved no-flash reveal ordering and hit testing routing.
 - **Verification**: `pnpm check` ran full workspace verification suite (`cargo fmt`, `clippy`, `tsc`, `dependency-cruiser`, `vitest` 393 tests, `cargo test` 97 tests) passing 100% green. Commit `9622c55` pushed to `origin/feat/sprint-1-m0-walking-skeleton`.
 
+
+---
+
+## 📅 Session Log: 2026-08-11 — Stage 6: Desktop Interaction & Widget UX
+
+- **Agent**: Antigravity (Google DeepMind)
+- **Task**: Stage 6 — Implement Desktop Edit Mode, Drag & Drop system, Widget Resizing, Context Menu, Widget Visual Redesign, and Layout Persistence.
+- **Files Changed**:
+  - `apps/desktop/src/desktop/layout-store.ts` (NEW — `LayoutStorage` interface adapter for layout persistence behind `localStorage` backend)
+  - `apps/desktop/src/desktop/components/edit-overlay.tsx` (NEW — 8px spacing grid overlay and dynamic magnetic alignment guides)
+  - `apps/desktop/src/desktop/components/context-menu.tsx` (NEW — Right-click glass context menu for Edit Mode, Resize, Lock, Remove, Reset Layout)
+  - `apps/desktop/src/desktop/components/surface-card.tsx` (Redesigned widget content views for Clock, Calendar, Session, System; drag & resize handles)
+  - `apps/desktop/src/desktop/desktop-root.tsx` (UI interaction layer state: `isEditMode`, `editingInstanceId`, `contextMenu`, `snapGuides`; composition scene remains rendering source of truth)
+  - `apps/desktop/src/shell.css` (Edit Mode grid, magnetic snap guide lines, context menu items, resize handle styles)
+  - `.ai/SESSION.md` (Updated session log)
+- **Decisions Made**:
+  - Enforced strict architecture constraint: `desktop-root.tsx` holds ONLY UI interaction state (`isEditMode`, `editingInstanceId`, `contextMenuState`).
+  - Created `LayoutStorage` interface adapter in `layout-store.ts` so future IPC/native persistence can be plugged in without changing the UI layer.
+  - Composition scene remains the rendering source of truth; zero runtime/contracts drift.
+- **Verification**: `pnpm check:types` and `pnpm test` (all 416 Vitest unit tests) passed 100% green.
+
+
