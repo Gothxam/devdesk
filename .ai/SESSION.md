@@ -281,3 +281,64 @@ Focus:
 - composition scheduling
 
 Do not start layout persistence or drag-and-drop before composition architecture is complete.
+
+---
+
+## 📅 Session Log: 2026-08-10 — Stage 4 Complete
+
+### Completed
+
+- C41–C42 `e7a4bca` — Composition surfaces, layer bands, and immutable scene
+- C42–C43 `83b01cd` — Invalidation by scene comparison and conservative occlusion
+- C44–C45 `0f2aad5` — Frame compositor, theme-derived appearance, and glass primitive
+- C46 `7f0dbd3` — Composition benchmarks and performance validation
+
+### Architecture
+
+Pipeline:
+
+SurfaceManager
+→ CompositionScene
+→ Invalidation
+→ Compositor
+→ Shell
+
+### Key Decisions
+
+- CompositionScene is immutable.
+- Layer bands (Wallpaper/Desktop/Normal/Overlay/System) are architectural, not user-editable z-order.
+- Invalidation is driven by scene diffs.
+- Occlusion is conservative.
+- Theme-derived blur/transparency intent is computed in composition and implemented in @devdesk/effects.
+- Composition remains independent of layout persistence and widget runtime.
+
+### Performance
+
+32-surface measurements:
+
+- scene build: 25.9 µs
+- hit test: 0.6 µs
+- occlusion: 20.6 µs
+- one-moved diff: 16.3 µs
+- all-moved diff: 88.1 µs
+- drag coalescing path: ~1.0 ms
+
+### Open Items
+
+- No runtime desktop composition is mounted yet.
+- No startup widget arrangement.
+- Composition currently lives inside @devdesk/widget-engine.
+- TS-5 virtual topology harness remains outstanding.
+
+### Next Stage
+
+Stage 5: Layout Engine
+
+Focus:
+
+- monitor-aware placement
+- deterministic arrangement computation
+- collision model
+- first-run placement
+
+Do not implement persistence or drag-and-drop before the runtime layout model is complete.
