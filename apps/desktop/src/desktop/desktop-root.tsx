@@ -8,12 +8,8 @@
  * the rendering source of truth.
  */
 
-import {
-  invokeDesktopSetEditMode,
-  invokeDesktopSetInputRegions,
-  parseWidgetInstanceId,
-  type WidgetInstanceId,
-} from '@devdesk/contracts';
+import { invokeDesktopSetEditMode, parseWidgetInstanceId, type WidgetInstanceId } from '@devdesk/contracts';
+
 import type { CompositionFrame } from '@devdesk/widget-engine';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -54,25 +50,11 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
     });
   });
 
-  // Sync Native Host Input Regions (Edit Button Pill + Widget Cards) with isEditMode & Placements
+  // Sync Native Host Interactivity state with isEditMode
   useEffect(() => {
-    const editBtnRect = {
-      x: typeof window !== 'undefined' ? Math.max(0, window.innerWidth - 240) : 1680,
-      y: 12,
-      width: 220,
-      height: 48,
-    };
+    void invokeDesktopSetEditMode(isEditMode);
+  }, [isEditMode]);
 
-    const cardRects = Array.from(placements.values()).map((p) => ({
-      x: p.x,
-      y: p.y,
-      width: p.width,
-      height: p.height,
-    }));
-
-    const regions = [editBtnRect, ...cardRects];
-    void invokeDesktopSetInputRegions(regions, isEditMode);
-  }, [isEditMode, placements]);
 
 
   // Dragging / Resizing Tracking Refs

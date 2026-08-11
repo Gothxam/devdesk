@@ -34,27 +34,5 @@ export async function invokeDesktopSetEditMode(enabled: boolean): Promise<void> 
   }
 }
 
-export interface InputRegionRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-/**
- * Updates interactive input regions for host windows (Desktop Interactivity Bridge).
- * Admits mouse input ONLY over widgets and the Edit Mode hot button when Edit Mode is OFF.
- */
-export async function invokeDesktopSetInputRegions(
-  regions: readonly InputRegionRect[],
-  isEditMode: boolean,
-): Promise<void> {
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('desktop_set_input_regions', { regions, isEditMode });
-  } catch {
-    // browser mode fallback
-  }
-}
 
 

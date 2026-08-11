@@ -17,43 +17,12 @@ use devdesk_ipc::SHELL_WINDOW_LABEL;
 use devdesk_platform::PlatformBackend;
 use tauri::{App, AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use serde::Deserialize;
-
 use desktop_host::DesktopHost;
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-struct InputRegionArg {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-}
-
 
 #[tauri::command]
 fn desktop_set_edit_mode(app: tauri::AppHandle, enabled: bool) {
     if let Some(host) = app.try_state::<DesktopHost>() {
         host.set_edit_mode(enabled);
-    }
-}
-
-#[tauri::command]
-fn desktop_set_input_regions(
-    app: tauri::AppHandle,
-    regions: Vec<InputRegionArg>,
-    is_edit_mode: bool,
-) {
-    if let Some(host) = app.try_state::<DesktopHost>() {
-        let raw_rects: Vec<devdesk_platform::RawRect> = regions
-            .into_iter()
-            .map(|r| devdesk_platform::RawRect {
-                x: r.x,
-                y: r.y,
-                width: r.width,
-                height: r.height,
-            })
-            .collect();
-        host.set_input_regions(&raw_rects, is_edit_mode);
     }
 }
 
@@ -76,14 +45,11 @@ pub fn run() -> tauri::Result<()> {
                 let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![desktop_set_edit_mode];
                 handler(invoke);
                 true
-            } else if cmd == "desktop_set_input_regions" {
-                let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![desktop_set_input_regions];
-                handler(invoke);
-                true
             } else {
                 contract.invoke_handler()(invoke)
             }
         })
+
 
 
 
