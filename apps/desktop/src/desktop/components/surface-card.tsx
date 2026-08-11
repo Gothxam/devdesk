@@ -1,6 +1,6 @@
 /**
- * Stage 5C — Desktop Mode Surface Card Component
- * Floating desktop-native widget composition. Zero window chrome.
+ * Stage 5B — Refined Surface Card Component
+ * Floating desktop-native widget composition with premium typography & motion.
  * Consumes real widget views & ThemeSnapshot custom properties.
  */
 
@@ -35,28 +35,28 @@ export function surfaceStyle(surface: CompositionSurface, isHit: boolean): CSSPr
     width: surface.rect.width,
     height: surface.rect.height,
     zIndex: layerDepth(surface.layer) * 100 + surface.ordinal,
-    borderRadius: 20,
+    borderRadius: 22,
     overflow: 'hidden',
     ...glass,
     opacity: Number(glass['--surface-opacity']),
     backdropFilter: 'var(--surface-backdrop)',
     background: isOverlay
-      ? 'rgba(15, 17, 24, 0.65)'
-      : 'rgba(15, 17, 24, 0.82)',
+      ? 'rgba(15, 18, 26, 0.65)'
+      : 'rgba(15, 18, 26, 0.82)',
     border: isHit
-      ? '1px solid rgba(255, 255, 255, 0.4)'
-      : '1px solid rgba(255, 255, 255, 0.08)',
+      ? '1px solid rgba(255, 255, 255, 0.45)'
+      : '1px solid rgba(255, 255, 255, 0.09)',
     boxShadow: isHit
-      ? '0 0 32px rgba(255, 255, 255, 0.18), 0 24px 64px rgba(0, 0, 0, 0.6)'
-      : '0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
-    outline: isHit ? '2px solid rgba(255, 255, 255, 0.45)' : 'none',
+      ? '0 0 36px rgba(255, 255, 255, 0.2), 0 28px 72px rgba(0, 0, 0, 0.65)'
+      : '0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+    outline: isHit ? '2px solid rgba(255, 255, 255, 0.5)' : 'none',
     outlineOffset: 2,
     pointerEvents: 'none',
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    transition: 'border-color 0.25s ease, box-shadow 0.25s ease, outline 0.25s ease',
+    transition: 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease, outline 0.25s ease',
     userSelect: 'none',
   };
 }
@@ -66,45 +66,56 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
   const instance = parseWidgetInstanceId(surface.surfaceId);
 
   return (
-    <div style={surfaceStyle(surface, isHit)}>
+    <div style={surfaceStyle(surface, isHit)} className={`devdesk-surface-card ${isHit ? 'hit' : ''}`}>
       {view ? (
         /* Native Floating Clock Widget */
         <div
           style={{
             flex: 1,
             width: '100%',
-            padding: '20px 24px',
+            padding: '22px 26px',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 8,
+            gap: 10,
           }}
         >
+          {/* Digital Time Display */}
           <div
             style={{
-              fontSize: 48,
+              fontSize: 52,
               fontWeight: 700,
               lineHeight: 1.0,
               color: view.accent,
               fontFamily: "'SF Mono', ui-monospace, Consolas, monospace",
               letterSpacing: '-0.03em',
-              textShadow: '0 4px 20px rgba(0, 0, 0, 0.4)',
+              textShadow: '0 4px 24px rgba(0, 0, 0, 0.5)',
             }}
           >
             {view.time}
           </div>
+
+          {/* Date Pill & Sync Pulse */}
           <div
             style={{
-              fontSize: 13,
-              color: view.foreground,
-              opacity: 0.85,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12,
               fontWeight: 500,
-              letterSpacing: '-0.01em',
+              padding: '4px 12px',
+              borderRadius: 14,
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              color: view.foreground,
+              backdropFilter: 'blur(8px)',
             }}
           >
-            {view.date}
+            <span className="devdesk-live-dot" />
+            <span>{view.date}</span>
           </div>
+
           {!view.hasDisplay && (
             <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600 }}>no display</div>
           )}
@@ -115,7 +126,7 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
           style={{
             flex: 1,
             width: '100%',
-            padding: '16px 20px',
+            padding: '18px 22px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
@@ -130,11 +141,11 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
               fontWeight: 600,
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
-              padding: '3px 9px',
+              padding: '3px 10px',
               borderRadius: 12,
-              background: surface.layer === 'overlay' ? 'rgba(239, 68, 68, 0.18)' : 'rgba(255, 255, 255, 0.08)',
+              background: surface.layer === 'overlay' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.08)',
               color: surface.layer === 'overlay' ? '#fca5a5' : '#a1a1aa',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
             }}
           >
             {surface.layer} Surface
