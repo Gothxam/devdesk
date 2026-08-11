@@ -1,6 +1,6 @@
 /**
- * Stage 5B — Refined Surface Card Component
- * Floating desktop-native widget composition with premium typography & motion.
+ * Stage 5C — Refined Desktop Surface Card Component
+ * Floating desktop-native widget composition. Zero window chrome.
  * Consumes real widget views & ThemeSnapshot custom properties.
  */
 
@@ -35,21 +35,21 @@ export function surfaceStyle(surface: CompositionSurface, isHit: boolean): CSSPr
     width: surface.rect.width,
     height: surface.rect.height,
     zIndex: layerDepth(surface.layer) * 100 + surface.ordinal,
-    borderRadius: 22,
+    borderRadius: 24,
     overflow: 'hidden',
     ...glass,
     opacity: Number(glass['--surface-opacity']),
-    backdropFilter: 'var(--surface-backdrop)',
+    backdropFilter: 'var(--surface-backdrop, blur(24px) saturate(180%))',
     background: isOverlay
-      ? 'rgba(15, 18, 26, 0.65)'
-      : 'rgba(15, 18, 26, 0.82)',
+      ? 'rgba(14, 17, 24, 0.65)'
+      : 'rgba(14, 17, 24, 0.82)',
     border: isHit
-      ? '1px solid rgba(255, 255, 255, 0.45)'
+      ? '1px solid rgba(255, 255, 255, 0.5)'
       : '1px solid rgba(255, 255, 255, 0.09)',
     boxShadow: isHit
-      ? '0 0 36px rgba(255, 255, 255, 0.2), 0 28px 72px rgba(0, 0, 0, 0.65)'
-      : '0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-    outline: isHit ? '2px solid rgba(255, 255, 255, 0.5)' : 'none',
+      ? '0 0 40px rgba(255, 255, 255, 0.22), 0 32px 80px rgba(0, 0, 0, 0.7)'
+      : '0 24px 64px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
+    outline: isHit ? '2px solid rgba(255, 255, 255, 0.55)' : 'none',
     outlineOffset: 2,
     pointerEvents: 'none',
     display: 'flex',
@@ -73,30 +73,30 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
           style={{
             flex: 1,
             width: '100%',
-            padding: '22px 26px',
+            padding: '24px 28px',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 10,
+            gap: 12,
           }}
         >
           {/* Digital Time Display */}
           <div
             style={{
-              fontSize: 52,
+              fontSize: 54,
               fontWeight: 700,
               lineHeight: 1.0,
               color: view.accent,
               fontFamily: "'SF Mono', ui-monospace, Consolas, monospace",
               letterSpacing: '-0.03em',
-              textShadow: '0 4px 24px rgba(0, 0, 0, 0.5)',
+              textShadow: '0 4px 28px rgba(0, 0, 0, 0.55)',
             }}
           >
             {view.time}
           </div>
 
-          {/* Date Pill & Sync Pulse */}
+          {/* Date Badge */}
           <div
             style={{
               display: 'flex',
@@ -104,12 +104,12 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
               gap: 8,
               fontSize: 12,
               fontWeight: 500,
-              padding: '4px 12px',
-              borderRadius: 14,
+              padding: '4px 14px',
+              borderRadius: 16,
               background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
+              border: '1px solid rgba(255, 255, 255, 0.09)',
               color: view.foreground,
-              backdropFilter: 'blur(8px)',
+              backdropFilter: 'blur(10px)',
             }}
           >
             <span className="devdesk-live-dot" />
@@ -126,7 +126,7 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
           style={{
             flex: 1,
             width: '100%',
-            padding: '18px 22px',
+            padding: '20px 24px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
@@ -145,7 +145,7 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
               borderRadius: 12,
               background: surface.layer === 'overlay' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.08)',
               color: surface.layer === 'overlay' ? '#fca5a5' : '#a1a1aa',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
+              border: '1px solid rgba(255, 255, 255, 0.09)',
             }}
           >
             {surface.layer} Surface
