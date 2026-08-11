@@ -406,5 +406,24 @@ SurfaceManager
 - **Verification**: `cargo check -p devdesk-app` (Rust build OK), `cargo test --workspace` (all 104 Rust tests passed), `pnpm check:types`, and `pnpm test` (all 416 Vitest tests passed 100% green).
 
 
+---
+
+## 📅 Session Log: 2026-08-11 — Stage 6: Desktop Input Region Edit Button Interactivity Fix
+
+- **Agent**: Antigravity (Google DeepMind)
+- **Task**: Fix unclickable `Edit Layout` button in native desktop mode by implementing dynamic Win32 `SetWindowRgn` (`set_input_regions`) IPC bridge.
+- **Files Changed**:
+  - `apps/desktop/src-tauri/src/desktop_host.rs` (Implemented `set_input_regions(&self, regions, is_edit_mode)` using `SetWindowRgn`)
+  - `apps/desktop/src-tauri/src/lib.rs` (Registered `desktop_set_input_regions` IPC command handler)
+  - `packages/contracts/src/index.ts` (Exported `invokeDesktopSetInputRegions(regions, isEditMode)` helper)
+  - `apps/desktop/src/desktop/desktop-root.tsx` (Synced input rects for top-right `Edit Layout` hot button pill + widget cards with native host bridge)
+  - `.ai/SESSION.md` (Logged session entry)
+- **Decisions Made**:
+  - When Edit Mode is OFF: `SetWindowRgn` admits mouse clicks ONLY over the `✏️ Edit Layout` hot button pill and widget cards, keeping 100% of empty wallpaper clicks transparent to Windows Explorer.
+  - When Edit Mode is ON: `SetWindowRgn` is cleared so the entire screen becomes interactive for full-screen dragging, snapping, resizing, and context menus.
+- **Verification**: `cargo check -p devdesk-app` (Rust build OK), `pnpm check:types`, and `pnpm test` (all 416 Vitest tests passed 100% green).
+
+
+
 
 

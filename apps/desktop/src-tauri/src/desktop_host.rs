@@ -127,6 +127,39 @@ impl DesktopHost {
         }
     }
 
+    /// Updates input regions for host windows (Desktop Interactivity Bridge).
+    pub fn set_input_regions(&self, regions: &[devdesk_platform::RawRect], is_edit_mode: bool) {
+        let backend = devdesk_platform::current_backend();
+
+        if let Ok(state) = self.state.lock() {
+            for window in state.plan.windows() {
+                let label = label_for(&window.id, state.generation);
+                if let Some(existing) = self.app.get_webview_window(&label) {
+                    if let Some(handle) = native_handle(&existing) {
+                        let _ = backend.set_click_through(handle, false);
+                        if is_edit_mode {
+                            let _ = backend.set_input_region(handle, &[]);
+                        } else {
+                            let _ = backend.set_input_region(handle, regions);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(shell_win) = self.app.get_webview_window(devdesk_ipc::SHELL_WINDOW_LABEL) {
+            if let Some(handle) = native_handle(&shell_win) {
+                let _ = backend.set_click_through(handle, false);
+                if is_edit_mode {
+                    let _ = backend.set_input_region(handle, &[]);
+                } else {
+                    let _ = backend.set_input_region(handle, regions);
+                }
+            }
+        }
+    }
+
+
 
     /// Brings the host windows in line with a topology.
     ///

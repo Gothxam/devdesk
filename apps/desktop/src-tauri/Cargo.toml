@@ -29,5 +29,7 @@ devdesk-platform = { path = "../../../crates/devdesk-platform" }
 # isolation      — SEC-6, the interposed frame between surface and IPC bridge
 # protocol-asset — SEC-7, the scope-gated asset protocol for theme and plugin assets
 raw-window-handle = { workspace = true }
+serde = { workspace = true }
 specta-typescript = { workspace = true }
 tauri = { workspace = true }
+

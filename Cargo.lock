@@ -608,6 +608,7 @@ dependencies = [
  "devdesk-ipc",
  "devdesk-platform",
  "raw-window-handle",
+ "serde",
  "specta-typescript",
  "tauri",
  "tauri-build",
