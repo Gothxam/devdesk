@@ -1,6 +1,6 @@
 /**
- * Stage 5A — DevDesk Desktop Shell Component
- * Consumes real desktop controller metrics, ThemeSnapshot, and displays.
+ * Stage 5C — DevDesk Desktop Mode Shell Component
+ * Pure Desktop Environment. Zero window chrome, zero top navigation bar, zero debug chrome.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -21,8 +21,6 @@ import { fetchPrimaryDisplay } from './desktop/displays';
 import { createThemeController, type ThemeController } from './theme/controller';
 import { BUNDLED_THEME_DATA, DEFAULT_THEME_ID, buildRegistry } from './theme/registry';
 
-import { NavigationBar } from './desktop/components/navigation-bar';
-import { StatusDock } from './desktop/components/status-dock';
 import './shell.css';
 
 interface DesktopState {
@@ -44,9 +42,7 @@ export function Shell(): React.JSX.Element {
   const [desktop, setDesktop] = useState<DesktopState | undefined>(undefined);
   const [frame, setFrame] = useState<CompositionFrame | undefined>(undefined);
   const [views, setViews] = useState<ReadonlyMap<WidgetInstanceId, ClockView>>(new Map());
-  const [hit, setHit] = useState<HitReadout | undefined>(undefined);
-  const [mode, setMode] = useState<ThemeMode>('dark');
-  const [presentMs, setPresentMs] = useState<number | undefined>(undefined);
+  const [, setHit] = useState<HitReadout | undefined>(undefined);
 
   useEffect(() => {
     if (started.current) return;
@@ -84,18 +80,13 @@ export function Shell(): React.JSX.Element {
         timer: createSystemTimer(),
         frameSource: (callback) => requestAnimationFrame(() => callback()),
         callbacks: {
-          onFrame: (presented) => {
-            const startedAt = performance.now();
-            setFrame(presented);
-            setPresentMs(performance.now() - startedAt);
-          },
+          onFrame: setFrame,
           onViews: setViews,
         },
         reducedTransparency: accessibility.reducedTransparency,
       });
 
       await controller.place(Date.now());
-      setMode(initialMode);
       setDesktop({ controller, themes, accessibility });
 
       requestAnimationFrame(() => {
@@ -104,24 +95,6 @@ export function Shell(): React.JSX.Element {
       });
     })();
   }, []);
-
-  const onMode = (next: ThemeMode): void => {
-    if (!desktop) return;
-
-    const outcome = desktop.themes.apply({
-      themeId: DEFAULT_THEME_ID,
-      mode: next,
-      accessibility: desktop.accessibility,
-    });
-    if (!outcome.ok) {
-      console.error(`Theme could not be applied: ${outcome.reason}`);
-      return;
-    }
-
-    const applied = desktop.themes.applied;
-    if (applied) desktop.controller.applyTheme(applied);
-    setMode(next);
-  };
 
   if (!desktop) {
     return (
@@ -133,34 +106,25 @@ export function Shell(): React.JSX.Element {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#0c0d12',
+          background: '#050609',
           color: '#a1a1aa',
-          fontFamily: 'system-ui, sans-serif',
+          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
           fontSize: 14,
         }}
       >
-        Initializing DevDesk Pipeline...
+        Initializing Desktop Workspace...
       </div>
     );
   }
 
   return (
     <div data-devdesk-shell="root">
-      <NavigationBar
-        mode={mode}
-        onMode={onMode}
-        displayName={`${desktop.controller.display.name} @ ${desktop.controller.display.scaleFactor}x`}
-        hit={hit}
-        frameCount={frame?.sequence ?? 0}
-        presentMs={presentMs}
-      />
       <DesktopRoot
         controller={desktop.controller}
         frame={frame}
         views={views}
         onHit={setHit}
       />
-      <StatusDock />
     </div>
   );
 }

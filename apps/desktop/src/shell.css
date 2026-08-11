@@ -1,5 +1,5 @@
 /**
- * Stage 5A — Desktop Shell Design System & Styles
+ * Stage 5C — Desktop Mode Shell Design System & Styles
  * Pure CSS using local fonts, ThemeSnapshot custom properties, and AP-3 glass variables.
  */
 
@@ -12,7 +12,7 @@
 .devdesk-wallpaper {
   position: fixed;
   inset: 0;
-  background: radial-gradient(ellipse at 50% 0%, #151824 0%, #0c0d12 60%, #06070a 100%);
+  background: radial-gradient(ellipse at 50% 35%, #181b2c 0%, #0d0e16 60%, #050609 100%);
   overflow: hidden;
   font-family: var(--devdesk-font-sans);
 }
@@ -20,296 +20,34 @@
 .devdesk-wallpaper-grid {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
   background-size: 32px 32px;
-  opacity: 0.5;
+  opacity: 0.45;
   pointer-events: none;
 }
 
-.devdesk-wallpaper-glow {
-  position: absolute;
-  top: -20%;
-  left: 30%;
-  width: 50vw;
-  height: 50vh;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.08) 0%, rgba(0, 0, 0, 0) 70%);
-  filter: blur(60px);
-  pointer-events: none;
-}
-
-/* Navigation Top Header */
-.devdesk-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 52px;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-  background: rgba(12, 13, 18, 0.75);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  font-family: var(--devdesk-font-sans);
-  user-select: none;
-}
-
-.devdesk-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.devdesk-logo {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: linear-gradient(135deg, #ffffff 0%, #a1a1aa 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 13px;
-  color: #0c0d12;
-  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.15);
-}
-
-.devdesk-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: #f4f4f5;
-  letter-spacing: -0.01em;
-}
-
-.devdesk-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #a1a1aa;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.devdesk-pulse-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #10b981;
-}
-
-.devdesk-pulse-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 8px #10b981;
-}
-
-/* Nav Pills */
-.devdesk-nav-pills {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.devdesk-nav-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 13px;
-  border-radius: 16px;
-  border: none;
-  background: transparent;
-  color: #a1a1aa;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.devdesk-nav-btn:hover {
-  color: #f4f4f5;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.devdesk-nav-btn.active {
-  background: #ffffff;
-  color: #0c0d12;
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-/* Right Metric Pill Bar */
-.devdesk-metrics-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.devdesk-chip {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #a1a1aa;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  font-family: var(--devdesk-font-mono);
-}
-
-.devdesk-chip.active {
-  background: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
-  border-color: rgba(99, 102, 241, 0.3);
-}
-
-.devdesk-mode-toggle {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.devdesk-mode-btn {
-  padding: 3px 9px;
-  border-radius: 5px;
-  border: none;
-  background: transparent;
-  color: #a1a1aa;
-  font-weight: 500;
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.devdesk-mode-btn.active {
-  background: #ffffff;
-  color: #0c0d12;
-  font-weight: 600;
-}
-
-/* Surface Cards Styling */
+/* Floating Surface Cards */
 .devdesk-surface-card {
   position: absolute;
-  border-radius: 14px;
+  border-radius: 20px;
   overflow: hidden;
   opacity: var(--surface-opacity, 1);
   backdrop-filter: var(--surface-backdrop, none);
   -webkit-backdrop-filter: var(--surface-backdrop, none);
-  background: var(--surface-tint, rgba(18, 20, 26, 0.85));
+  background: var(--surface-tint, rgba(15, 17, 24, 0.82));
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   pointer-events: none;
   display: flex;
   flex-direction: column;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, outline 0.2s ease;
+  justify-content: center;
+  align-items: center;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, outline 0.25s ease;
 }
 
 .devdesk-surface-card.hit {
-  border-color: rgba(255, 255, 255, 0.35);
-  box-shadow: 0 0 24px rgba(255, 255, 255, 0.12), 0 20px 48px rgba(0, 0, 0, 0.6);
-  outline: 2px solid rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 32px rgba(255, 255, 255, 0.18), 0 24px 64px rgba(0, 0, 0, 0.6);
+  outline: 2px solid rgba(255, 255, 255, 0.45);
   outline-offset: 2px;
-}
-
-.devdesk-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.devdesk-card-dots {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.devdesk-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  opacity: 0.8;
-}
-
-.devdesk-dot.red { background: #ff5f56; }
-.devdesk-dot.yellow { background: #ffbd2e; }
-.devdesk-dot.green { background: #27c93f; }
-
-.devdesk-card-title {
-  margin-left: 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #f4f4f5;
-  letter-spacing: -0.01em;
-}
-
-.devdesk-layer-badge {
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #a1a1aa;
-}
-
-.devdesk-layer-badge.overlay {
-  background: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
-}
-
-/* Floating Bottom Dock */
-.devdesk-dock {
-  position: fixed;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 20px;
-  background: rgba(18, 20, 26, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
-  font-family: var(--devdesk-font-sans);
-  user-select: none;
-}
-
-.devdesk-dock-item {
-  padding: 4px 10px;
-  border-radius: 12px;
-  border: none;
-  background: rgba(255, 255, 255, 0.04);
-  color: #e4e4e7;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.devdesk-dock-item:hover {
-  background: rgba(255, 255, 255, 0.12);
-  transform: translateY(-1px);
 }
