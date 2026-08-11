@@ -10,24 +10,84 @@ mod surface;
 
 use std::sync::Arc;
 
-use devdesk_core::desktop::{DesktopMode, RecoveryClock};
+use devdesk_core::desktop::{DesktopMode, InteractionMode, InteractionSource, RecoveryClock};
 use devdesk_core::window::SurfaceHost;
 use devdesk_display::{DisplayGraph, SharedTopology};
 use devdesk_ipc::SHELL_WINDOW_LABEL;
-use devdesk_platform::PlatformBackend;
-use tauri::{App, AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use devdesk_platform::{Hotkey, PlatformBackend};
+use tauri::{App, AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use desktop_host::DesktopHost;
 
+/// Asks the desktop to enter or leave the state the user can edit it in.
+///
+/// The shell can reach this only when the desktop is **already** interactive —
+/// in window mode, in a browser, or once the hotkey has opened the door. It is
+/// therefore not the way in, and must not be treated as one: it exists so the
+/// in-page button and context menu can turn editing *off*, and so a reloaded
+/// webview can re-assert a state it was told about.
 #[tauri::command]
-fn desktop_set_edit_mode(app: tauri::AppHandle, enabled: bool) {
-    eprintln!("devdesk: [COMMAND_EXEC] desktop_set_edit_mode enabled={enabled}");
-    if let Some(host) = app.try_state::<DesktopHost>() {
-        host.set_edit_mode(enabled);
-    } else {
-        eprintln!("devdesk: [COMMAND_ERROR] DesktopHost state not found in AppHandle!");
+fn desktop_set_edit_mode(app: AppHandle, enabled: bool) {
+    let requested = InteractionMode::from_editing(enabled);
+    eprintln!("devdesk: [IPC] desktop_set_edit_mode enabled={enabled} -> {requested}");
+
+    let Some(host) = app.try_state::<DesktopHost>() else {
+        // Window mode never manages a `DesktopHost`, and the shell running there
+        // has nothing to toggle: an ordinary window is already interactive.
+        eprintln!("devdesk: [IPC] no desktop host in this mode; nothing to toggle");
+        return;
+    };
+
+    host.set_interaction(requested, InteractionSource::Shell);
+    publish_interaction(&app, host.interaction());
+}
+
+/// Reports the mode the desktop is actually in.
+///
+/// The shell calls this on mount instead of pushing its own initial state down.
+/// The old direction was the bug: the webview asserted `false` on every load,
+/// so a reload silently left edit mode, and the assertion raced the hotkey.
+#[tauri::command]
+fn desktop_interaction_state(app: AppHandle) -> bool {
+    let editing = app
+        .try_state::<DesktopHost>()
+        .is_some_and(|host| host.interaction().is_editing());
+
+    eprintln!("devdesk: [IPC] desktop_interaction_state -> editing={editing}");
+    editing
+}
+
+/// The event the shell listens on for mode changes it did not initiate.
+///
+/// The hotkey is exactly that case: it is handled entirely in the native layer,
+/// and without this the UI would still be showing "Edit Layout" over a desktop
+/// that had become editable.
+const INTERACTION_EVENT: &str = "devdesk://interaction";
+
+/// Tells every window what mode the desktop is in.
+pub(crate) fn publish_interaction(app: &AppHandle, mode: InteractionMode) {
+    if let Err(error) = app.emit(INTERACTION_EVENT, mode.is_editing()) {
+        eprintln!("devdesk: [EDIT] could not publish interaction state: {error}");
     }
 }
+
+/// The combination that opens the door.
+///
+/// `Ctrl+Shift+D`, and it has to be system-wide. Every in-page trigger — the
+/// button, the context menu, `Ctrl+E` — lives inside a window that in ambient
+/// mode is click-through and sits beneath Explorer's icon layer, so none of them
+/// can ever fire from the state they are meant to leave.
+///
+/// Not `Ctrl+E`: an unmodified editor shortcut registered system-wide would be
+/// taken away from every other application on the machine.
+const EDIT_HOTKEY: Hotkey = Hotkey::ctrl_shift(b'D' as u16);
+
+/// The commands this crate answers rather than the generated contract.
+///
+/// Listed once so the router and the handler cannot drift: a command added to
+/// `generate_handler!` and forgotten here is never reached, which presents as a
+/// button that does nothing.
+const HOST_COMMANDS: [&str; 2] = ["desktop_set_edit_mode", "desktop_interaction_state"];
 
 /// Builds and runs the DevDesk host.
 ///
@@ -42,21 +102,25 @@ pub fn run() -> tauri::Result<()> {
     let contract = devdesk_ipc::builder();
 
     tauri::Builder::default()
-        .invoke_handler(move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
-            let cmd = invoke.message.command();
-            if cmd == "desktop_set_edit_mode" || cmd.ends_with("desktop_set_edit_mode") {
-                let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![desktop_set_edit_mode];
-                handler(invoke);
-                true
-            } else {
-                contract.invoke_handler()(invoke)
+        // Two registries. The contract's is generated from Rust signatures and
+        // owns the versioned, plugin-facing surface (`B-3`); these two are host
+        // controls that have no place in it — a window's z-order band is not
+        // something a plugin negotiates.
+        //
+        // Dispatched by exact name. `Invoke` is not `Clone`, so it cannot be
+        // offered to both; and an exact match is what keeps the routing
+        // readable — the previous `ends_with` would have claimed any command
+        // whose name merely finished the same way.
+        .invoke_handler(move |invoke| {
+            if HOST_COMMANDS.contains(&invoke.message.command()) {
+                let local: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool =
+                    tauri::generate_handler![desktop_set_edit_mode, desktop_interaction_state];
+
+                return local(invoke);
             }
+
+            contract.invoke_handler()(invoke)
         })
-
-
-
-
-
         .setup(|app| {
             // The window subsystem, wired to Tauri. Constructed here rather than
             // earlier because the sink needs an `AppHandle`, which does not
@@ -81,7 +145,6 @@ pub fn run() -> tauri::Result<()> {
         })
         .run(tauri::generate_context!())
 }
-
 
 /// Enumerates displays once and publishes the result.
 ///
@@ -142,6 +205,17 @@ fn start_desktop(
                 desktop_host::watch_shell_restarts(backend, app.handle().clone(), monotonic_clock())
             {
                 eprintln!("devdesk: shell restart detection unavailable: {error}");
+            }
+
+            // The only input path into a window that is click-through and behind
+            // the shell. Without it nothing can enter edit mode at all, so a
+            // failure here is reported loudly rather than noted in passing.
+            match desktop_host::watch_edit_hotkey(backend, app.handle().clone(), EDIT_HOTKEY) {
+                Ok(()) => eprintln!("devdesk: press {EDIT_HOTKEY} to edit the desktop"),
+                Err(error) => eprintln!(
+                    "devdesk: {EDIT_HOTKEY} could not be registered ({error}); the desktop \
+                     will not be editable — another application is holding that combination"
+                ),
             }
 
             eprintln!("devdesk: desktop mode on {monitors} monitor(s)");

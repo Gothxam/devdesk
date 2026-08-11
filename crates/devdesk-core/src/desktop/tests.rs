@@ -7,11 +7,12 @@
 use std::sync::Arc;
 
 use devdesk_display::{DisplayGraph, MonitorDescriptor, Topology};
-use devdesk_platform::{Connector, ConnectorKind, RawMonitorInfo, RawRect};
+use devdesk_platform::{Connector, ConnectorKind, RawMonitorInfo, RawRect, SurfaceLayer};
 
 use super::{
-    backoff_for, DesktopMode, HostPlan, HostWindowChange, HostWindowId, ModeRequest,
-    ReattachTrigger, RecoveryClock, RecoveryState, MAX_ATTEMPTS, MAX_BACKOFF, RECOVERY_DEBOUNCE,
+    backoff_for, DesktopMode, HostPlan, HostWindowChange, HostWindowId, InteractionMode,
+    InteractionSource, ModeRequest, ReattachTrigger, RecoveryClock, RecoveryState, MAX_ATTEMPTS,
+    MAX_BACKOFF, RECOVERY_DEBOUNCE,
 };
 
 /// One display, built the way production builds one.
@@ -459,4 +460,98 @@ fn window_mode_always_says_why() {
     let attached = DesktopMode::Attached { monitors: 2 };
     assert!(attached.is_attached());
     assert_eq!(attached.reason(), None);
+}
+
+// ----------------------------------------------------------- interaction --
+
+#[test]
+fn ambient_is_scenery_and_editing_is_an_application() {
+    // The two states differ in more than a flag, and every difference is a
+    // separate question with its own rule.
+    let ambient = InteractionMode::Ambient;
+    let editing = InteractionMode::Editing;
+
+    assert_eq!(ambient.band(), SurfaceLayer::Wallpaper);
+    assert!(ambient.click_through());
+    assert!(!ambient.takes_focus());
+
+    assert_eq!(editing.band(), SurfaceLayer::Overlay);
+    assert!(!editing.click_through());
+    assert!(editing.takes_focus());
+}
+
+#[test]
+fn editing_changes_the_band_and_not_only_the_style() {
+    // The defect this type exists to prevent. Clearing WS_EX_TRANSPARENT on a
+    // window parented into WorkerW leaves it beneath SHELLDLL_DefView, so hit
+    // testing never reaches it — measured, with the style at exactly
+    // 0x00040110. If the two modes ever share a band, the style toggle is all
+    // that is left and the desktop becomes unreachable again.
+    assert_ne!(
+        InteractionMode::Ambient.band(),
+        InteractionMode::Editing.band(),
+        "the modes must differ by band, or clicks cannot reach the desktop"
+    );
+}
+
+#[test]
+fn the_default_is_scenery() {
+    // A desktop that started in edit mode would take over the screen before the
+    // user asked for anything.
+    assert_eq!(InteractionMode::default(), InteractionMode::Ambient);
+    assert!(!InteractionMode::default().is_editing());
+}
+
+#[test]
+fn toggling_twice_returns_to_where_it_started() {
+    for mode in [InteractionMode::Ambient, InteractionMode::Editing] {
+        assert_ne!(mode.toggled(), mode);
+        assert_eq!(mode.toggled().toggled(), mode);
+    }
+}
+
+#[test]
+fn a_boolean_becomes_a_named_state_at_the_boundary() {
+    // The IPC surface is a bool because that is what a checkbox sends. Nothing
+    // downstream should have to remember which way round `true` was.
+    assert_eq!(
+        InteractionMode::from_editing(true),
+        InteractionMode::Editing
+    );
+    assert_eq!(
+        InteractionMode::from_editing(false),
+        InteractionMode::Ambient
+    );
+
+    for mode in [InteractionMode::Ambient, InteractionMode::Editing] {
+        assert_eq!(InteractionMode::from_editing(mode.is_editing()), mode);
+    }
+}
+
+#[test]
+fn focus_follows_editing_exactly() {
+    // A webview with no focus receives no keydown, so the key that *leaves*
+    // edit mode would never arrive: the user would be stuck inside a desktop
+    // that had taken over their screen.
+    for mode in [InteractionMode::Ambient, InteractionMode::Editing] {
+        assert_eq!(mode.takes_focus(), mode.is_editing());
+        assert_eq!(mode.click_through(), !mode.is_editing());
+    }
+}
+
+#[test]
+fn every_source_is_nameable_in_a_log() {
+    // The sources fail differently and the distinction is otherwise invisible:
+    // a `Shell` request to *enter* editing is itself evidence the window was
+    // already reachable, because in ambient mode the shell has no input.
+    for source in [
+        InteractionSource::Hotkey,
+        InteractionSource::Shell,
+        InteractionSource::Restore,
+    ] {
+        assert!(!source.to_string().is_empty());
+    }
+
+    assert_eq!(InteractionSource::Hotkey.to_string(), "hotkey");
+    assert_eq!(InteractionMode::Editing.to_string(), "editing");
 }

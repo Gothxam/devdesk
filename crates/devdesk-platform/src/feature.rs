@@ -45,6 +45,11 @@ pub enum PlatformFeature {
     CaptureExclusion,
     /// Notification when the shell restarts (`DH-10`).
     ShellRestartEvents,
+    /// A key combination delivered regardless of what has focus.
+    ///
+    /// The only input path into a window that is click-through and behind the
+    /// shell — which is every host window in ambient mode.
+    GlobalHotkey,
 }
 
 impl PlatformFeature {
@@ -65,6 +70,7 @@ impl PlatformFeature {
         Self::InputRegion,
         Self::CaptureExclusion,
         Self::ShellRestartEvents,
+        Self::GlobalHotkey,
     ];
 }
 
@@ -83,6 +89,7 @@ impl fmt::Display for PlatformFeature {
             Self::InputRegion => "input-region",
             Self::CaptureExclusion => "capture-exclusion",
             Self::ShellRestartEvents => "shell-restart-events",
+            Self::GlobalHotkey => "global-hotkey",
         };
         f.write_str(name)
     }

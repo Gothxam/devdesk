@@ -21,6 +21,16 @@ workspace = true
 # the build if they diverge.
 tauri-build = { version = "2", features = ["isolation"] }
 
+# The production asset path, and the only thing that selects it.
+#
+# `tauri-build` derives `cfg(dev)` from the *absence* of this feature, not from
+# the cargo profile: `cargo build --release` alone still bakes in `devUrl` and
+# ships a binary that shows "localhost refused to connect" on a machine with no
+# dev server. A packaged build is `--features custom-protocol`, which is what
+# `cargo tauri build` passes for you.
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 devdesk-core = { path = "../../../crates/devdesk-core" }
 devdesk-display = { path = "../../../crates/devdesk-display" }

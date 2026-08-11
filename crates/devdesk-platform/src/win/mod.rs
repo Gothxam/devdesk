@@ -18,6 +18,7 @@
 //! inventing one.
 
 mod edid;
+mod hotkey;
 mod input;
 mod layer;
 mod monitors;
@@ -31,8 +32,9 @@ use crate::display::{DisplayEventSink, RawMonitorInfo, RawRect, SubscriptionId};
 use crate::error::PlatformError;
 use crate::feature::{PlatformFeature, Support};
 use crate::platform::{Platform, PlatformId, WindowSystem};
-use crate::window::{ShellEventSink, SurfaceLayer, WindowHandle};
+use crate::window::{Hotkey, HotkeySink, ShellEventSink, StyleChange, SurfaceLayer, WindowHandle};
 
+use hotkey::HotkeyHandle;
 use shell::ShellWatcherHandle;
 use watcher::WatcherHandle;
 
@@ -50,6 +52,10 @@ pub struct WindowsBackend {
     /// two carry different handles and are torn down independently; sharing one
     /// list would mean a sum type whose only purpose is to be matched on again.
     shell_watchers: Mutex<Vec<(SubscriptionId, ShellWatcherHandle)>>,
+
+    /// Live hotkey registrations. A third list for the same reason as the
+    /// second: a different handle with a different teardown.
+    hotkeys: Mutex<Vec<(SubscriptionId, HotkeyHandle)>>,
     next_id: Mutex<u64>,
 }
 
@@ -115,6 +121,15 @@ impl PlatformBackend for WindowsBackend {
             | PlatformFeature::InputRegion
             | PlatformFeature::CaptureExclusion
             | PlatformFeature::ShellRestartEvents => Support::Full,
+
+            // Registration can still be refused at the moment of asking, when
+            // another process already holds the combination. Partial rather than
+            // Full because a caller that assumed it always succeeds would offer
+            // a shortcut that silently does nothing on the one machine where
+            // some other tool got there first.
+            PlatformFeature::GlobalHotkey => Support::Partial {
+                note: "a combination already registered by another process is refused",
+            },
 
             // DH-5: answered before anything is attached, so the UI never offers
             // desktop mode on a machine where it cannot work (XP-2). A session
@@ -193,8 +208,20 @@ impl PlatformBackend for WindowsBackend {
         layer::detach(window)
     }
 
-    fn set_click_through(&self, window: WindowHandle, enabled: bool) -> Result<(), PlatformError> {
+    fn set_click_through(
+        &self,
+        window: WindowHandle,
+        enabled: bool,
+    ) -> Result<StyleChange, PlatformError> {
         input::set_click_through(window, enabled)
+    }
+
+    fn focus_window(&self, window: WindowHandle) -> Result<(), PlatformError> {
+        input::focus(window)
+    }
+
+    fn window_at(&self, x: i32, y: i32) -> Option<u64> {
+        Some(input::window_at(x, y))
     }
 
     fn set_input_region(
@@ -234,6 +261,52 @@ impl PlatformBackend for WindowsBackend {
         watchers.push((id, handle));
 
         Ok(id)
+    }
+
+    fn register_hotkey(
+        &self,
+        hotkey: Hotkey,
+        sink: HotkeySink,
+    ) -> Result<SubscriptionId, PlatformError> {
+        let handle = hotkey::register(hotkey, sink)?;
+        let id = self.allocate_id("register_hotkey")?;
+
+        let Ok(mut hotkeys) = self.hotkeys.lock() else {
+            // The registry is unusable, so this registration could never be
+            // released through it. Stopping it here is the only way not to leak
+            // a thread holding a system-wide key combination.
+            handle.stop();
+
+            return Err(PlatformError::OsCall {
+                call: "register_hotkey",
+                code: 0,
+            });
+        };
+        hotkeys.push((id, handle));
+
+        Ok(id)
+    }
+
+    fn unregister_hotkey(&self, id: SubscriptionId) -> Result<(), PlatformError> {
+        let Ok(mut hotkeys) = self.hotkeys.lock() else {
+            return Err(PlatformError::OsCall {
+                call: "unregister_hotkey",
+                code: 0,
+            });
+        };
+
+        if let Some(index) = hotkeys.iter().position(|(each, _)| *each == id) {
+            let (_, handle) = hotkeys.remove(index);
+
+            // Dropped before stopping: `stop` joins the thread, and holding the
+            // registry lock across a join deadlocks against anything trying to
+            // register from the callback.
+            drop(hotkeys);
+            handle.stop();
+        }
+
+        // An unknown id is not an error — see the trait documentation.
+        Ok(())
     }
 
     fn unsubscribe_shell_restart(&self, id: SubscriptionId) -> Result<(), PlatformError> {

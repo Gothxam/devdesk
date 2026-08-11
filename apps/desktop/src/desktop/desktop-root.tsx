@@ -8,7 +8,13 @@
  * the rendering source of truth.
  */
 
-import { invokeDesktopSetEditMode, parseWidgetInstanceId, type WidgetInstanceId } from '@devdesk/contracts';
+import {
+  invokeDesktopSetEditMode,
+  onDesktopEditModeChanged,
+  parseWidgetInstanceId,
+  readDesktopEditMode,
+  type WidgetInstanceId,
+} from '@devdesk/contracts';
 
 import type { CompositionFrame } from '@devdesk/widget-engine';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -50,10 +56,56 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
     });
   });
 
-  // Sync Native Host Interactivity state with isEditMode
+  /**
+   * Adopt the host's mode; never assert our own over it.
+   *
+   * This used to run `invokeDesktopSetEditMode(isEditMode)` on every change of
+   * `isEditMode` — including the mount, where it is `false`. In desktop mode
+   * that was the *only* call that ever reached the host, because the button, the
+   * context menu and `Ctrl+E` all live in a window that receives no input until
+   * edit mode is already on. The logs showed `enabled=false` forever, once per
+   * host window per reload, and never once `true`.
+   *
+   * So the direction is reversed: read the host on mount, then follow it.
+   */
   useEffect(() => {
-    void invokeDesktopSetEditMode(isEditMode);
-  }, [isEditMode]);
+    let live = true;
+    let stop: (() => void) | undefined;
+
+    void (async () => {
+      const current = await readDesktopEditMode();
+      // `undefined` means no host — a browser, where the page is interactive
+      // anyway. Keep local state rather than being told "not editing" by a
+      // runtime that has no desktop to edit.
+      if (live && current !== undefined) setIsEditMode(current);
+
+      const unlisten = await onDesktopEditModeChanged((editing) => {
+        if (live) setIsEditMode(editing);
+      });
+
+      if (live) stop = unlisten;
+      else unlisten?.();
+    })();
+
+    return () => {
+      live = false;
+      stop?.();
+    };
+  }, []);
+
+  /**
+   * Ask the host to change mode.
+   *
+   * Every in-page trigger goes through here rather than setting state directly,
+   * so the host stays the single source of truth and the UI updates when the
+   * host confirms. Local state is set too: in a browser there is no host to
+   * confirm, and a toggle that did nothing there would be worse than one that
+   * is briefly optimistic here.
+   */
+  const requestEditMode = useCallback((editing: boolean) => {
+    setIsEditMode(editing);
+    void invokeDesktopSetEditMode(editing);
+  }, []);
 
 
 
@@ -79,7 +131,10 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
         e.preventDefault();
-        setIsEditMode((prev) => !prev);
+        setIsEditMode((prev) => {
+          void invokeDesktopSetEditMode(!prev);
+          return !prev;
+        });
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -248,7 +303,7 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
         isEditMode={isEditMode}
         snapGuides={snapGuides}
         workArea={{ width: window.innerWidth, height: window.innerHeight }}
-        onToggleEditMode={() => setIsEditMode((prev) => !prev)}
+        onToggleEditMode={() => requestEditMode(!isEditMode)}
       />
 
       {/* Render Surfaces from Composition Scene (Source of Truth) */}
@@ -291,7 +346,7 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
         isEditMode={isEditMode}
         isLocked={contextMenu?.instanceId ? placements.get(contextMenu.instanceId)?.isLocked : false}
         onClose={() => setContextMenu(null)}
-        onToggleEditMode={() => setIsEditMode((prev) => !prev)}
+        onToggleEditMode={() => requestEditMode(!isEditMode)}
         onResizeWidget={(id, preset) => {
           const presetMap: Record<string, { width: number; height: number }> = {
             small: { width: 180, height: 120 },

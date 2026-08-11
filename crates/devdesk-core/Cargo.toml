@@ -11,11 +11,15 @@ workspace = true
 
 [dependencies]
 devdesk-display = { path = "../devdesk-display" }
+# The z-order band vocabulary (`SurfaceLayer`) is defined here and is portable —
+# a plain enum with no `cfg`. Deciding *which* band edit mode uses is desktop
+# policy, and policy belongs beside the rest of it rather than in the Tauri shell
+# DR-7 keeps thin. Already in the graph via devdesk-display.
+devdesk-platform = { path = "../devdesk-platform" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-devdesk-platform = { path = "../devdesk-platform" }
 serde_json = { workspace = true }
 
 # ADR-0003 RL-14 puts cross-cutting suites under the repository-root `tests/`.

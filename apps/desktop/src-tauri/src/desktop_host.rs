@@ -16,12 +16,13 @@
 use std::sync::{Arc, Mutex};
 
 use devdesk_core::desktop::{
-    DesktopMode, HostPlan, HostWindow, HostWindowChange, HostWindowId, ModeRequest,
-    ReattachTrigger, RecoveryClock, RecoveryState, MODE_ENV_VAR, RECOVERY_DEBOUNCE,
+    DesktopMode, HostPlan, HostWindow, HostWindowChange, HostWindowId, InteractionMode,
+    InteractionSource, ModeRequest, ReattachTrigger, RecoveryClock, RecoveryState, MODE_ENV_VAR,
+    RECOVERY_DEBOUNCE,
 };
 use devdesk_display::DisplayGraph;
 use devdesk_platform::{
-    PlatformBackend, PlatformFeature, ShellEvent, ShellEventSink, SurfaceLayer,
+    Hotkey, HotkeySink, PlatformBackend, PlatformFeature, ShellEvent, ShellEventSink, SurfaceLayer,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
@@ -71,6 +72,14 @@ struct HostState {
     /// Where this machine ended up.
     mode: DesktopMode,
 
+    /// Whether the desktop is scenery or under the user's hands.
+    ///
+    /// Owned **here**, not in the shell. The shell used to hold it and push it
+    /// down on mount, which meant every reload asserted `Ambient` over whatever
+    /// the user had chosen — and since the only trigger that works lives outside
+    /// the webview, the pushed value was always the initial `false`.
+    interaction: InteractionMode,
+
     /// Which desktop this is: 0 at startup, incremented on every recovery.
     ///
     /// Part of every host window's label, because a label cannot be reclaimed.
@@ -93,42 +102,255 @@ impl DesktopHost {
                 mode: DesktopMode::Windowed {
                     reason: "the desktop host has not started yet".to_owned(),
                 },
+                interaction: InteractionMode::Ambient,
                 generation: 0,
             }),
         }
     }
 
-    /// Sets desktop host interactivity (Edit Mode bridge).
+    /// Puts the desktop into, or out of, the state the user can edit it in.
     ///
-    /// When `enabled` is `true` (Edit Mode ON):
-    ///   `WS_EX_TRANSPARENT` is disabled so host windows receive pointer events,
-    ///   dragging, resizing, right-clicks, and keyboard focus for `Ctrl+E`.
-    /// When `enabled` is `false` (Edit Mode OFF):
-    ///   `WS_EX_TRANSPARENT` is re-applied, restoring click-through behavior.
-    pub fn set_edit_mode(&self, enabled: bool) {
+    /// **A band change, not a style change.** Clearing `WS_EX_TRANSPARENT` on a
+    /// window parented into `WorkerW` does not make it reachable: it sits
+    /// beneath `SHELLDLL_DefView`, so hit testing finds Explorer's icon layer
+    /// and stops. Measured with the extended style at exactly `0x00040110` —
+    /// transparent cleared — `WindowFromPoint` over a widget still returned
+    /// `SHELLDLL_DefView`. Editing therefore *moves* every host window into the
+    /// overlay band and restores it afterwards.
+    ///
+    /// Only **host** windows are touched. The previous implementation walked
+    /// every webview window Tauri knew about, which in window mode is the shell's
+    /// own ordinary window — making the application window click-through is not
+    /// a desktop concern and is not recoverable from inside it.
+    ///
+    /// Idempotent. The shell re-asserts on mount and after every reload, and a
+    /// re-assert that matched the current state must not re-run a band change.
+    pub fn set_interaction(&self, requested: InteractionMode, source: InteractionSource) {
+        let Ok(mut state) = self.state.lock() else {
+            eprintln!("devdesk: [EDIT] state unreadable; interaction request dropped");
+            return;
+        };
+
+        let previous = state.interaction;
+        let generation = state.generation;
+        let targets: Vec<(String, HostWindow)> = state
+            .plan
+            .windows()
+            .map(|window| (label_for(&window.id, generation), window.clone()))
+            .collect();
+        let virtual_origin = state.plan.virtual_origin();
+
+        eprintln!(
+            "devdesk: [EDIT] request source={source} from={previous} to={requested} \
+             hosts={} generation={generation}",
+            targets.len()
+        );
+
+        if previous == requested {
+            eprintln!("devdesk: [EDIT] already {requested}; nothing to do");
+            return;
+        }
+
+        state.interaction = requested;
+        drop(state);
+
         let backend = devdesk_platform::current_backend();
-        let click_through = !enabled;
 
-        eprintln!("devdesk: [DESKTOP_HOST] set_edit_mode({enabled}) -> setting click_through={click_through}");
-
-        let windows = self.app.webview_windows();
-        eprintln!("devdesk: [DESKTOP_HOST] found {} active webview window(s) in Tauri app", windows.len());
-
-        for (label, window) in windows {
-            if let Some(handle) = native_handle(&window) {
-                let raw_hwnd = handle.raw();
-                eprintln!("devdesk: [DESKTOP_HOST] updating window '{label}' (HWND {raw_hwnd:#X}) -> click_through={click_through}");
-                let result = backend.set_click_through(handle, click_through);
-                if let Err(err) = result {
-                    eprintln!("devdesk: [DESKTOP_HOST_ERROR] set_click_through failed on '{label}': {err}");
-                }
-            }
+        for (label, window) in targets {
+            self.apply_interaction(
+                backend.as_ref(),
+                &label,
+                &window,
+                (virtual_origin.x, virtual_origin.y),
+                requested,
+            );
         }
     }
 
+    /// Applies a mode to one host window, saying exactly what happened.
+    ///
+    /// Order matters. The band moves **first**: clearing the click-through style
+    /// on a window still parented under `WorkerW` would report success and
+    /// change nothing observable, which is the failure this whole path exists to
+    /// stop reproducing.
+    fn apply_interaction(
+        &self,
+        backend: &dyn PlatformBackend,
+        label: &str,
+        planned: &HostWindow,
+        virtual_origin: (i32, i32),
+        mode: InteractionMode,
+    ) {
+        let Some(window) = self.app.get_webview_window(label) else {
+            eprintln!("devdesk: [EDIT] {label}: no such window");
+            return;
+        };
 
+        let Some(handle) = native_handle(&window) else {
+            eprintln!("devdesk: [EDIT] {label}: no native handle on this platform");
+            return;
+        };
 
+        let hwnd = handle.raw();
 
+        if let Err(error) = backend.attach_to_layer(handle, mode.band()) {
+            eprintln!(
+                "devdesk: [EDIT] {label} hwnd={hwnd:#X}: band -> {} FAILED: {error}",
+                mode.band()
+            );
+            return;
+        }
+
+        // **A band change is a coordinate-space change.** While parented into
+        // `WorkerW` a position is relative to that parent's client area, whose
+        // origin is the top-left of the virtual screen; once top-level the same
+        // numbers are screen coordinates. Leaving them alone moves every window
+        // by the virtual origin — on a desk with a monitor left of the primary,
+        // both host windows jumped a full screen to the right and landed on each
+        // other. The origin the band implies is therefore part of the move.
+        let origin = band_origin(mode, virtual_origin);
+
+        if let Err(error) = place(&window, planned, origin) {
+            eprintln!("devdesk: [EDIT] {label} hwnd={hwnd:#X}: reposition FAILED: {error}");
+            return;
+        }
+
+        let styles = match backend.set_click_through(handle, mode.click_through()) {
+            Ok(styles) => styles,
+            Err(error) => {
+                eprintln!("devdesk: [EDIT] {label} hwnd={hwnd:#X}: click_through FAILED: {error}");
+                return;
+            }
+        };
+
+        // The reachability check, at a point that is definitely over this
+        // window: its own centre. Asking wherever the cursor happens to be
+        // answers a question nobody asked.
+        let probe = window
+            .outer_position()
+            .ok()
+            .zip(window.outer_size().ok())
+            .map(|(origin, size)| {
+                (
+                    origin.x + i32::try_from(size.width / 2).unwrap_or(0),
+                    origin.y + i32::try_from(size.height / 2).unwrap_or(0),
+                )
+            });
+
+        let hit = probe.and_then(|(x, y)| backend.window_at(x, y).map(|found| (x, y, found)));
+
+        let reachable = match hit {
+            Some((x, y, found)) => {
+                let owned = found == hwnd || self.owns(found);
+                eprintln!(
+                    "devdesk: [EDIT] {label} hwnd={hwnd:#X} band={} click_through={} \
+                     exstyle={styles} hit_test({x},{y})={found:#X} reachable={owned}",
+                    mode.band(),
+                    mode.click_through()
+                );
+                owned
+            }
+            None => {
+                eprintln!(
+                    "devdesk: [EDIT] {label} hwnd={hwnd:#X} band={} click_through={} \
+                     exstyle={styles} hit_test=unavailable",
+                    mode.band(),
+                    mode.click_through()
+                );
+                false
+            }
+        };
+
+        if mode.takes_focus() {
+            match backend.focus_window(handle) {
+                Ok(()) => eprintln!("devdesk: [EDIT] {label} hwnd={hwnd:#X}: focused"),
+                // Not fatal. Windows grants foreground activation only to a
+                // process already entitled to it, and a window the user can
+                // click but not yet type into is still an improvement on one
+                // they can do neither with.
+                Err(error) => {
+                    eprintln!("devdesk: [EDIT] {label} hwnd={hwnd:#X}: focus refused: {error}");
+                }
+            }
+        }
+
+        if mode.is_editing() && !reachable {
+            eprintln!(
+                "devdesk: [EDIT] {label} hwnd={hwnd:#X}: STILL UNREACHABLE after entering \
+                 {mode} — the band change did not take"
+            );
+        }
+    }
+
+    /// Whether a native window handle is one of this host's windows.
+    ///
+    /// `window_at` answers with the **root**, so a plain comparison against our
+    /// own top-level handles is right. It was not always: the hit test used to
+    /// return WebView2's render child, which lives in `msedgewebview2.exe` and
+    /// therefore matched neither our handles nor our process id — every genuine
+    /// hit read as a miss.
+    fn owns(&self, hwnd: u64) -> bool {
+        self.app
+            .webview_windows()
+            .values()
+            .filter_map(native_handle)
+            .any(|handle| handle.raw() == hwnd)
+    }
+
+    /// Restores the click-through style a reveal wiped, for the mode in force.
+    ///
+    /// **Style only — never the band.** Showing a window rewrites its extended
+    /// style; it does not touch the parent. Re-attaching from here would reload
+    /// the webview, and the reload runs the very handler that called this: an
+    /// unconditional band change on page load does not terminate, and was
+    /// observed spinning until the process died.
+    ///
+    /// A label that is not a host window is ignored. The shell window in window
+    /// mode has a label too, and it is nobody's desktop.
+    pub fn reassert_window(&self, label: &str) {
+        let Ok(state) = self.state.lock() else {
+            return;
+        };
+
+        let mode = state.interaction;
+        let generation = state.generation;
+        let known = state
+            .plan
+            .windows()
+            .any(|window| label_for(&window.id, generation) == label);
+
+        drop(state);
+
+        if !known {
+            return;
+        }
+
+        let Some(window) = self.app.get_webview_window(label) else {
+            return;
+        };
+
+        let Some(handle) = native_handle(&window) else {
+            return;
+        };
+
+        let backend = devdesk_platform::current_backend();
+
+        match backend.set_click_through(handle, mode.click_through()) {
+            Ok(styles) => eprintln!(
+                "devdesk: [EDIT] {label} hwnd={:#X}: reveal re-assert {mode} exstyle={styles}",
+                handle.raw()
+            ),
+            Err(error) => eprintln!("devdesk: [EDIT] {label}: reveal re-assert failed: {error}"),
+        }
+    }
+
+    /// The mode the desktop is in.
+    #[must_use]
+    pub fn interaction(&self) -> InteractionMode {
+        self.state
+            .lock()
+            .map_or(InteractionMode::Ambient, |state| state.interaction)
+    }
 
     /// Brings the host windows in line with a topology.
     ///
@@ -174,9 +396,37 @@ impl DesktopHost {
             }
         }
 
+        // A window created while editing is born ambient, because `create`
+        // applies the resting state. Re-asserting here is what stops a monitor
+        // plugged in mid-edit from being the one window nobody can click.
+        let interaction = state.interaction;
+        let generation = state.generation;
+        let virtual_origin = next.virtual_origin();
+        let targets: Vec<(String, HostWindow)> = next
+            .windows()
+            .map(|window| (label_for(&window.id, generation), window.clone()))
+            .collect();
+
         let monitors = next.len();
         state.plan = next;
         state.mode = DesktopMode::Attached { monitors };
+        drop(state);
+
+        if interaction.is_editing() {
+            for (label, window) in targets {
+                self.apply_interaction(
+                    backend,
+                    &label,
+                    &window,
+                    (virtual_origin.x, virtual_origin.y),
+                    interaction,
+                );
+            }
+        }
+
+        let Ok(state) = self.state.lock() else {
+            return DesktopMode::Attached { monitors };
+        };
 
         state.mode.clone()
     }
@@ -421,22 +671,25 @@ fn label_for(id: &HostWindowId, generation: u64) -> String {
 ///
 /// Showing a window rewrites its extended style, which drops the input
 /// transparency and non-activation that attachment set — precisely the
-/// properties that only start to matter once the window is visible. Re-running
-/// attachment is idempotent, so doing it again costs nothing and doing it too
-/// few times leaves a full-monitor window swallowing every click on the desktop.
+/// properties that only start to matter once the window is visible.
+///
+/// **Re-asserts the mode the desktop is actually in**, which is the whole point.
+/// This used to apply the resting state unconditionally, so every page load —
+/// and a webview reloads on its own — dragged an editing desktop back to
+/// ambient, put its windows back inside `WorkerW`, and shifted them by the
+/// virtual origin on the way. A user watched their desktop leave edit mode and
+/// jump a screen to the left for no reason they could see.
 ///
 /// Failures are swallowed because there is no caller: this runs on a webview
-/// callback, after `create` has already reported whether attachment works at
-/// all. A failure here means the second attempt at something that succeeded
-/// once, and the honest response is the same window in the same place.
+/// callback, after `create` has already reported whether attachment works.
 fn reassert<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
-    let Some(handle) = native_handle(window) else {
+    let app = window.app_handle();
+
+    let Some(host) = app.try_state::<DesktopHost>() else {
         return;
     };
 
-    let backend = devdesk_platform::current_backend();
-    let _ = backend.attach_to_layer(handle, HOST_LAYER);
-    let _ = backend.set_click_through(handle, true);
+    host.reassert_window(window.label());
 }
 
 /// The URL a host window loads: the shell, told which monitor it is on.
@@ -465,6 +718,19 @@ fn entry_url(id: &HostWindowId) -> WebviewUrl {
         .collect();
 
     WebviewUrl::App(format!("index.html?monitor={encoded}").into())
+}
+
+/// The origin the band's coordinate space is measured from.
+///
+/// `Wallpaper` puts the window inside `WorkerW`, whose client origin is the
+/// top-left of the **virtual screen** — so a monitor at virtual `(-1920, 0)`
+/// sits at client `(0, 0)`. Every other band is top-level, where positions are
+/// screen coordinates and the monitor's own origin is already right.
+const fn band_origin(mode: InteractionMode, virtual_origin: (i32, i32)) -> (i32, i32) {
+    match mode.band() {
+        SurfaceLayer::Wallpaper => virtual_origin,
+        _ => (0, 0),
+    }
 }
 
 /// Positions and sizes a host window.
@@ -537,6 +803,52 @@ fn window_mode_reason(request: ModeRequest, backend: &dyn PlatformBackend) -> St
             .unwrap_or("this platform does not support desktop attachment")
             .to_owned(),
     }
+}
+
+/// Registers the combination that lets the user reach the desktop at all.
+///
+/// The press is handled **entirely in the native layer**. It cannot be routed
+/// through the shell first, because in ambient mode the shell is inside a window
+/// that receives no input — which is the whole reason a system-wide key is
+/// needed. So the toggle happens here, and the shell is *told* afterwards.
+///
+/// # Errors
+///
+/// The platform's reason when the combination cannot be registered, which on
+/// Windows means another process already holds it. Fatal to editing and to
+/// nothing else: the desktop still renders, so this is reported rather than
+/// failing startup.
+pub fn watch_edit_hotkey(
+    backend: &dyn PlatformBackend,
+    app: AppHandle,
+    hotkey: Hotkey,
+) -> Result<(), String> {
+    let sink = HotkeySink::new(move || {
+        let Some(host) = app.try_state::<DesktopHost>() else {
+            return;
+        };
+
+        let next = host.interaction().toggled();
+        eprintln!("devdesk: [EDIT] hotkey pressed -> {next}");
+
+        // On the main thread: the band change reparents windows and moves them
+        // in the z-order, and window operations are thread-affine. Doing it on
+        // the hotkey's message loop is a race that only shows up elsewhere.
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let Some(host) = handle.try_state::<DesktopHost>() else {
+                return;
+            };
+
+            host.set_interaction(next, InteractionSource::Hotkey);
+            crate::publish_interaction(&handle, host.interaction());
+        });
+    });
+
+    backend
+        .register_hotkey(hotkey, sink)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 /// A monotonic reading, shared between the sink and the waiter it starts.

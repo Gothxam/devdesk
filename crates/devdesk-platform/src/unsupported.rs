@@ -15,7 +15,7 @@ use crate::display::{DisplayEventSink, RawMonitorInfo, RawRect, SubscriptionId};
 use crate::error::PlatformError;
 use crate::feature::{PlatformFeature, Support};
 use crate::platform::PlatformId;
-use crate::window::{ShellEventSink, SurfaceLayer, WindowHandle};
+use crate::window::{Hotkey, HotkeySink, ShellEventSink, StyleChange, SurfaceLayer, WindowHandle};
 
 /// A backend that supports nothing and says why.
 #[derive(Debug, Clone, Copy)]
@@ -100,8 +100,19 @@ impl PlatformBackend for UnsupportedBackend {
         &self,
         _window: WindowHandle,
         _enabled: bool,
-    ) -> Result<(), PlatformError> {
+    ) -> Result<StyleChange, PlatformError> {
         Err(self.unsupported(PlatformFeature::ClickThrough))
+    }
+
+    fn focus_window(&self, _window: WindowHandle) -> Result<(), PlatformError> {
+        Err(self.unsupported(PlatformFeature::ClickThrough))
+    }
+
+    fn window_at(&self, _x: i32, _y: i32) -> Option<u64> {
+        // Not `Some(0)`. "No window there" and "this platform cannot say" are
+        // different facts, and a caller checking reachability must not read the
+        // second as the first (`AP-15`).
+        None
     }
 
     fn set_input_region(
@@ -128,6 +139,18 @@ impl PlatformBackend for UnsupportedBackend {
     }
 
     fn unsubscribe_shell_restart(&self, _id: SubscriptionId) -> Result<(), PlatformError> {
+        Ok(())
+    }
+
+    fn register_hotkey(
+        &self,
+        _hotkey: Hotkey,
+        _sink: HotkeySink,
+    ) -> Result<SubscriptionId, PlatformError> {
+        Err(self.unsupported(PlatformFeature::GlobalHotkey))
+    }
+
+    fn unregister_hotkey(&self, _id: SubscriptionId) -> Result<(), PlatformError> {
         Ok(())
     }
 }

@@ -38,7 +38,10 @@ pub use error::PlatformError;
 pub use feature::{PlatformFeature, Support};
 pub use platform::{Platform, PlatformId, WindowSystem};
 pub use unsupported::UnsupportedBackend;
-pub use window::{InputRegion, ShellEvent, ShellEventSink, SurfaceLayer, WindowHandle};
+pub use window::{
+    Hotkey, HotkeySink, InputRegion, Modifiers, ShellEvent, ShellEventSink, StyleChange,
+    SurfaceLayer, WindowHandle,
+};
 
 #[cfg(target_os = "windows")]
 pub use win::WindowsBackend;

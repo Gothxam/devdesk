@@ -242,7 +242,9 @@ fn every_window_capability_names_the_feature_it_is_missing() {
 
     let attempts: [(Result<(), PlatformError>, PlatformFeature); 3] = [
         (
-            backend.set_click_through(nowhere(), true),
+            // Discarding the style report: this asserts the *refusal*, and a
+            // backend that supports nothing has no style to report.
+            backend.set_click_through(nowhere(), true).map(|_| ()),
             PlatformFeature::ClickThrough,
         ),
         (
@@ -359,4 +361,98 @@ fn a_shell_sink_delivers_what_it_is_given() {
     sink.emit(ShellEvent::Restarted);
 
     assert_eq!(count.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_platform_that_cannot_hit_test_says_so_rather_than_answering_zero() {
+    // `0` is a valid answer meaning "no window there". A backend that cannot
+    // answer must not borrow it, or a caller checking whether its own window is
+    // reachable reads "cannot tell" as "nothing is there" (`AP-15`).
+    assert_eq!(unsupported_backend().window_at(10, 10), None);
+}
+
+#[test]
+fn an_unimplemented_platform_refuses_focus_and_hotkeys_with_a_reason() {
+    let backend = unsupported_backend();
+
+    match backend.focus_window(nowhere()) {
+        Err(PlatformError::Unsupported { reason, .. }) => assert!(!reason.trim().is_empty()),
+        other => panic!("expected Unsupported, got {other:?}"),
+    }
+
+    match backend.register_hotkey(
+        crate::window::Hotkey::ctrl_shift(b'D'.into()),
+        crate::window::HotkeySink::new(|| {}),
+    ) {
+        Err(PlatformError::Unsupported { feature, .. }) => {
+            assert_eq!(feature, PlatformFeature::GlobalHotkey);
+        }
+        other => panic!("expected Unsupported, got {other:?}"),
+    }
+
+    // Releasing something that was never registered succeeds, like every other
+    // teardown here.
+    assert!(backend
+        .unregister_hotkey(crate::display::SubscriptionId(9_999))
+        .is_ok());
+}
+
+/// A hotkey must be registrable and releasable without leaking its thread.
+///
+/// The production-only failure again: a registration that is never released
+/// holds a system-wide combination for the rest of the session, and every other
+/// application silently loses that key.
+#[test]
+fn a_hotkey_can_be_registered_and_released() {
+    let backend = crate::current_backend();
+
+    if !backend
+        .supports(PlatformFeature::GlobalHotkey)
+        .is_available()
+    {
+        return;
+    }
+
+    // F24 rather than anything a person uses: this runs in CI beside whatever
+    // else is on the machine, and claiming a real combination even briefly would
+    // take it away from them.
+    let hotkey = crate::window::Hotkey::ctrl_shift(0x87);
+    let sink = crate::window::HotkeySink::new(|| {});
+
+    let Ok(id) = backend.register_hotkey(hotkey, sink) else {
+        // Another process holds it. A refusal is the documented outcome and not
+        // a test failure — see `Support::Partial` for this feature.
+        return;
+    };
+
+    backend
+        .unregister_hotkey(id)
+        .expect("release must succeed once registration did");
+}
+
+#[test]
+fn a_hotkey_prints_as_something_a_user_could_be_told_to_press() {
+    use crate::window::Hotkey;
+
+    // The string reaches a log line the user reads to find out which key opens
+    // edit mode, so a debug-shaped rendering would be a dead end for them.
+    assert_eq!(Hotkey::ctrl_shift(b'D'.into()).to_string(), "Ctrl+Shift+D");
+    assert!(Hotkey::ctrl_shift(0x87)
+        .to_string()
+        .starts_with("Ctrl+Shift+"));
+}
+
+#[test]
+fn a_style_change_shows_both_sides() {
+    use crate::window::StyleChange;
+
+    // Both numbers travel together because the interesting case is them being
+    // equal after a change was asked for — invisible if only one is reported.
+    let unchanged = StyleChange {
+        before: 0x0004_0130,
+        after: 0x0004_0130,
+    };
+
+    assert_eq!(unchanged.to_string(), "0x00040130 -> 0x00040130");
+    assert_eq!(unchanged.before, unchanged.after);
 }

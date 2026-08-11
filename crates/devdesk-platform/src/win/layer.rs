@@ -41,9 +41,10 @@ use std::time::Duration;
 use windows::core::{BOOL, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, FindWindowExW, FindWindowW, GetParent, GetWindowLongPtrW, SendMessageTimeoutW,
-    SetParent, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_BOTTOM, SMTO_NORMAL,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    EnumWindows, FindWindowExW, FindWindowW, GetAncestor, GetClassNameW, GetDesktopWindow,
+    GetWindowLongPtrW, SendMessageTimeoutW, SetParent, SetWindowLongPtrW, SetWindowPos, GA_PARENT,
+    GWL_EXSTYLE, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, SMTO_NORMAL, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
 };
 
 use crate::error::PlatformError;
@@ -71,20 +72,90 @@ const PROGMAN_TIMEOUT: Duration = Duration::from_millis(1_000);
 /// already in that band, so the caller asked for the state it is in.
 pub(super) fn attach(window: WindowHandle, layer: SurfaceLayer) -> Result<(), PlatformError> {
     match layer {
-        SurfaceLayer::Normal => Ok(()),
+        SurfaceLayer::Normal => detach(window),
         SurfaceLayer::Wallpaper => attach_to_wallpaper_host(window),
         SurfaceLayer::Desktop => sink_to_bottom(window),
+        SurfaceLayer::Overlay => raise_to_top(window),
 
-        // Both are ordinary top-level windows with a topmost flag, which is the
-        // window subsystem's business rather than the platform's. Modelling them
-        // as attachment would put z-order policy in two places.
-        SurfaceLayer::Overlay | SurfaceLayer::System => Err(PlatformError::Unsupported {
+        // Reserved to the core (`WD-9`) and nothing claims it yet. Refused
+        // rather than aliased onto `Overlay`: a band that silently means another
+        // band is a band nobody can reason about.
+        SurfaceLayer::System => Err(PlatformError::Unsupported {
             platform: super::WindowsBackend::platform_id(),
             feature: PlatformFeature::WallpaperLayer,
-            reason: "the overlay and system bands are ordinary topmost windows on Windows \
-                     and need no attachment",
+            reason: "the system band is reserved and has no attachment path yet",
         }),
     }
+}
+
+/// Lifts a window out of the desktop and puts it in front of everything.
+///
+/// The `Overlay` band, and the **only** band in which a host window is
+/// reachable by the mouse. Clearing `WS_EX_TRANSPARENT` is not enough on its
+/// own and never can be: a window parented into `WorkerW` sits beneath
+/// `SHELLDLL_DefView`, so hit testing finds Explorer's icon layer first. This
+/// is what edit mode needs — the window has to *move*, not merely restyle.
+///
+/// Three steps, in this order:
+///
+/// 1. **Unparent.** While the window is a `WorkerW` child its z-order is only
+///    relative to its siblings there, and no amount of raising escapes the
+///    parent. Nothing above can be reached from inside.
+/// 2. **Clear `WS_EX_NOACTIVATE`.** A window that cannot be activated cannot
+///    hold keyboard focus, and a webview with no focus receives no `keydown` —
+///    so `Escape` would not leave edit mode.
+/// 3. **`HWND_TOPMOST`.** Above ordinary windows, because the user is editing
+///    their desktop and the thing being edited has to be the thing in front.
+fn raise_to_top(window: WindowHandle) -> Result<(), PlatformError> {
+    let hwnd = to_hwnd(window);
+
+    // Already here? Then nothing to do, and doing it anyway is actively
+    // harmful: `SetParent` on a window hosting a live WebView2 makes the webview
+    // reload, and a reload runs the page-load handler that asked for this — an
+    // unconditional re-attach from there never terminates. It was observed
+    // taking Explorer down with it.
+    if is_top_level(hwnd) && is_topmost(hwnd) {
+        return Ok(());
+    }
+
+    detach(window)?;
+
+    // SAFETY: reading the extended style of a window this process owns.
+    let current = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+    let wanted = current & !isize::try_from(WS_EX_NOACTIVATE.0).unwrap_or(0);
+
+    if wanted != current {
+        super::clear_last_error();
+
+        // SAFETY: setting the extended style of a window this process owns.
+        let previous = unsafe { SetWindowLongPtrW(hwnd, GWL_EXSTYLE, wanted) };
+
+        if previous == 0 {
+            let code = super::last_error();
+
+            if code != 0 {
+                return Err(PlatformError::OsCall {
+                    call: "SetWindowLongPtrW(clear WS_EX_NOACTIVATE)",
+                    code,
+                });
+            }
+        }
+    }
+
+    // SAFETY: a z-order change on a window this process owns. Position and size
+    // are held; `SWP_FRAMECHANGED` flushes the style written above.
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED,
+        )
+    }
+    .map_err(|error| super::os_call("SetWindowPos(HWND_TOPMOST)", &error))
 }
 
 /// Puts a window at the bottom of the ordinary z-order.
@@ -145,20 +216,41 @@ fn sink_to_bottom(window: WindowHandle) -> Result<(), PlatformError> {
 }
 
 /// Returns a window to being an ordinary top-level window.
+///
+/// Drops the topmost flag as well as the parent. A window coming back from the
+/// `Overlay` band that kept `HWND_TOPMOST` would sit in front of everything for
+/// the rest of the session, which is the opposite of where the desktop belongs.
 pub(super) fn detach(window: WindowHandle) -> Result<(), PlatformError> {
     let hwnd = to_hwnd(window);
 
-    // A window that was never attached has no parent, and `SetParent(_, None)`
-    // on it is a no-op rather than an error. Checking first keeps a redundant
-    // detach out of the error path (see the trait documentation).
-    // SAFETY: reading the parent of a window this process owns.
-    if unsafe { GetParent(hwnd) }.is_err() {
-        return Ok(());
+    // `GetAncestor`, not `GetParent`: for a window that is not `WS_CHILD` —
+    // which ours are — `GetParent` answers with the *owner*, and a reparented
+    // host window has no owner. Asking the wrong question here reports every
+    // attached window as unattached.
+    // SAFETY: reading the ancestry of a window this process owns.
+    let parent = unsafe { GetAncestor(hwnd, GA_PARENT) };
+    // SAFETY: the desktop window is a process-wide constant.
+    let desktop = unsafe { GetDesktopWindow() };
+
+    if !parent.is_invalid() && parent != desktop {
+        // SAFETY: the child is ours; `None` restores the desktop as parent.
+        unsafe { SetParent(hwnd, None) }
+            .map_err(|error| super::os_call("SetParent(detach)", &error))?;
     }
 
-    // SAFETY: both windows are ours; `None` restores the desktop as parent.
-    unsafe { SetParent(hwnd, None) }
-        .map_err(|error| super::os_call("SetParent(detach)", &error))?;
+    // SAFETY: a z-order change on a window this process owns.
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            Some(HWND_NOTOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        )
+    }
+    .map_err(|error| super::os_call("SetWindowPos(HWND_NOTOPMOST)", &error))?;
 
     Ok(())
 }
@@ -175,6 +267,15 @@ pub(super) fn is_supported() -> bool {
 
 /// Reparents a window into the wallpaper `WorkerW`.
 fn attach_to_wallpaper_host(window: WindowHandle) -> Result<(), PlatformError> {
+    // Same reason as `raise_to_top`: re-parenting a window that is already
+    // parented reloads its webview for no gain, and the reload asks for this
+    // again.
+    if let Some(host) = current_parent(to_hwnd(window)) {
+        if is_worker_w(host) {
+            return Ok(());
+        }
+    }
+
     let Some(progman) = progman() else {
         return Err(unsupported(
             "Progman is not present; this session has no Explorer desktop",
@@ -244,6 +345,43 @@ fn owns_icons(candidate: HWND) -> bool {
         )
     }
     .is_ok()
+}
+
+/// This window's real parent, or `None` if it is top-level.
+///
+/// `GetAncestor`, not `GetParent`: for a window that is not `WS_CHILD` — which
+/// ours are — `GetParent` answers with the *owner*, and a reparented host window
+/// has no owner. The wrong question reports every attached window as detached.
+fn current_parent(hwnd: HWND) -> Option<HWND> {
+    // SAFETY: reading the ancestry of a window this process owns.
+    let parent = unsafe { GetAncestor(hwnd, GA_PARENT) };
+    // SAFETY: a process-wide constant.
+    let desktop = unsafe { GetDesktopWindow() };
+
+    (!parent.is_invalid() && parent != desktop).then_some(parent)
+}
+
+/// Whether a window has no parent but the desktop.
+fn is_top_level(hwnd: HWND) -> bool {
+    current_parent(hwnd).is_none()
+}
+
+/// Whether a window carries `WS_EX_TOPMOST`.
+fn is_topmost(hwnd: HWND) -> bool {
+    // SAFETY: reading the extended style of a window this process owns.
+    let style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+
+    style & isize::try_from(WS_EX_TOPMOST.0).unwrap_or(0) != 0
+}
+
+/// Whether a window is a `WorkerW`.
+fn is_worker_w(hwnd: HWND) -> bool {
+    let mut class = [0_u16; 32];
+
+    // SAFETY: writing into a local buffer whose length is passed alongside it.
+    let written = unsafe { GetClassNameW(hwnd, &mut class) };
+
+    written > 0 && String::from_utf16_lossy(&class[..written as usize]) == "WorkerW"
 }
 
 /// Finds `Progman`, the desktop's root window.
