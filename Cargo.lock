@@ -604,7 +604,9 @@ name = "devdesk-app"
 version = "0.1.0"
 dependencies = [
  "devdesk-core",
+ "devdesk-display",
  "devdesk-ipc",
+ "devdesk-platform",
  "specta-typescript",
  "tauri",
  "tauri-build",

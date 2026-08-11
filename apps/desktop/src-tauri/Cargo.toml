@@ -23,7 +23,9 @@ tauri-build = { version = "2", features = ["isolation"] }
 
 [dependencies]
 devdesk-core = { path = "../../../crates/devdesk-core" }
+devdesk-display = { path = "../../../crates/devdesk-display" }
 devdesk-ipc = { path = "../../../crates/devdesk-ipc" }
+devdesk-platform = { path = "../../../crates/devdesk-platform" }
 # isolation      — SEC-6, the interposed frame between surface and IPC bridge
 # protocol-asset — SEC-7, the scope-gated asset protocol for theme and plugin assets
 specta-typescript = { workspace = true }

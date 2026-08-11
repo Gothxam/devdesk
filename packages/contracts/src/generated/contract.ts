@@ -37,6 +37,50 @@ async contractDescribe() : Promise<Result<ContractInfo, IpcError>> {
 }
 },
 /**
+ * Describes the current display topology.
+ * 
+ * A **snapshot**, deliberately: no generation crosses the boundary (`TP-14` —
+ * process-local, and the webview reloads independently of the process), and no
+ * subscription exists yet. Change *push* to the shell arrives with the event
+ * bus in Stage 3 of the kernel work; until then the shell re-queries.
+ * 
+ * # Errors
+ * 
+ * [`IpcError::Internal`] if enumeration has not happened yet — the window
+ * subsystem observes topology at startup, so this is a startup-ordering bug
+ * rather than a user-visible state.
+ */
+async displayDescribe() : Promise<Result<DisplayTopologyInfo, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("display_describe") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Reveals the shell window after its first paint.
+ * 
+ * The shell window is created **hidden** — the same `AC-FRE-1.1` discipline
+ * surfaces get, because the shell flashing white on launch is the same defect
+ * at desktop size. The shell calls this once its first frame has painted, and
+ * being early is impossible: the window exists before the webview can run.
+ * 
+ * # Errors
+ * 
+ * [`IpcError::NotFound`] if the shell window does not exist, which is a
+ * composition-root bug, and [`IpcError::Internal`] if the windowing system
+ * refused to show it.
+ */
+async shellReportFirstFrame() : Promise<Result<null, IpcError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("shell_report_first_frame") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Registers a surface and creates its window, hidden.
  * 
  * The identity is supplied by the caller and **is the widget instance's
@@ -132,6 +176,37 @@ version: string;
  */
 app_version: string }
 /**
+ * One attached display, as the shell needs it.
+ * 
+ * **Logical pixels**, because the webview composes in CSS pixels and handing it
+ * physical ones would push the `WD-2` conversion — which requires a monitor —
+ * across the boundary to the side that does not hold one.
+ * 
+ * The identity is the opaque monitor key. It is hardware-identifying (device
+ * path or serial), and it crosses here because the shell is Trust Zone 1
+ * (§18.2) and must associate surfaces with displays. **Exposing it to plugins
+ * is a separate decision that has not been taken** — the M3 host API must not
+ * forward this struct as-is (`SEC-15`, ADR-0004 `T-10`).
+ */
+export type DisplayInfo = { id: string; 
+/**
+ * Human-readable, for matching to hardware (`AC-MON-8.3`). Never identity.
+ */
+name: string; is_primary: boolean; scale_factor: number; 
+/**
+ * The placeable area, excluding taskbars (work area, not bounds).
+ */
+work_area: LogicalRectInfo }
+/**
+ * The attached displays.
+ */
+export type DisplayTopologyInfo = { 
+/**
+ * In stable identity order. Empty means no display is attached — a real
+ * state, not an error.
+ */
+monitors: DisplayInfo[] }
+/**
  * The single error type every IPC command returns (IPC-3).
  * 
  * Returning a bare value is prohibited: it forecloses error evolution, and a
@@ -146,6 +221,10 @@ export type IpcError = { kind: "invalid-argument"; detail: { field: string; expe
  * backtraces must not cross into a webview (SEC-15).
  */
 { kind: "internal"; detail: { trace_id: TraceId } }
+/**
+ * A rectangle in logical pixels, as the shell composes in.
+ */
+export type LogicalRectInfo = { x: number; y: number; width: number; height: number }
 /**
  * The platform a capability was unavailable on.
  */

@@ -59,6 +59,121 @@ fn contract_describe() -> Result<ContractInfo, IpcError> {
     })
 }
 
+/// A rectangle in logical pixels, as the shell composes in.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct LogicalRectInfo {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// One attached display, as the shell needs it.
+///
+/// **Logical pixels**, because the webview composes in CSS pixels and handing it
+/// physical ones would push the `WD-2` conversion — which requires a monitor —
+/// across the boundary to the side that does not hold one.
+///
+/// The identity is the opaque monitor key. It is hardware-identifying (device
+/// path or serial), and it crosses here because the shell is Trust Zone 1
+/// (§18.2) and must associate surfaces with displays. **Exposing it to plugins
+/// is a separate decision that has not been taken** — the M3 host API must not
+/// forward this struct as-is (`SEC-15`, ADR-0004 `T-10`).
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct DisplayInfo {
+    pub id: String,
+    /// Human-readable, for matching to hardware (`AC-MON-8.3`). Never identity.
+    pub name: String,
+    pub is_primary: bool,
+    pub scale_factor: f64,
+    /// The placeable area, excluding taskbars (work area, not bounds).
+    pub work_area: LogicalRectInfo,
+}
+
+/// The attached displays.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct DisplayTopologyInfo {
+    /// In stable identity order. Empty means no display is attached — a real
+    /// state, not an error.
+    pub monitors: Vec<DisplayInfo>,
+}
+
+/// Describes the current display topology.
+///
+/// A **snapshot**, deliberately: no generation crosses the boundary (`TP-14` —
+/// process-local, and the webview reloads independently of the process), and no
+/// subscription exists yet. Change *push* to the shell arrives with the event
+/// bus in Stage 3 of the kernel work; until then the shell re-queries.
+///
+/// # Errors
+///
+/// [`IpcError::Internal`] if enumeration has not happened yet — the window
+/// subsystem observes topology at startup, so this is a startup-ordering bug
+/// rather than a user-visible state.
+#[tauri::command]
+#[specta::specta]
+fn display_describe(host: tauri::State<'_, SurfaceHost>) -> Result<DisplayTopologyInfo, IpcError> {
+    let monitors = host.with_manager(|manager| {
+        manager
+            .graph()
+            .monitors()
+            .iter()
+            .map(|monitor| {
+                let area = monitor.logical_work_area();
+                DisplayInfo {
+                    id: monitor.id().to_string(),
+                    name: monitor.name.clone(),
+                    is_primary: monitor.is_primary,
+                    scale_factor: monitor.scale_factor.get(),
+                    work_area: LogicalRectInfo {
+                        x: area.origin.x,
+                        y: area.origin.y,
+                        width: area.size.width,
+                        height: area.size.height,
+                    },
+                }
+            })
+            .collect()
+    });
+
+    Ok(DisplayTopologyInfo { monitors })
+}
+
+/// The label of the shell's own window.
+///
+/// One place, because the creation site in `devdesk-app` and the reveal below
+/// must agree, and a string repeated in two crates is how they stop agreeing.
+pub const SHELL_WINDOW_LABEL: &str = "main";
+
+/// Reveals the shell window after its first paint.
+///
+/// The shell window is created **hidden** — the same `AC-FRE-1.1` discipline
+/// surfaces get, because the shell flashing white on launch is the same defect
+/// at desktop size. The shell calls this once its first frame has painted, and
+/// being early is impossible: the window exists before the webview can run.
+///
+/// # Errors
+///
+/// [`IpcError::NotFound`] if the shell window does not exist, which is a
+/// composition-root bug, and [`IpcError::Internal`] if the windowing system
+/// refused to show it.
+#[tauri::command]
+#[specta::specta]
+fn shell_report_first_frame(app: tauri::AppHandle) -> Result<(), IpcError> {
+    use tauri::Manager;
+
+    let window = app
+        .get_webview_window(SHELL_WINDOW_LABEL)
+        .ok_or_else(|| IpcError::NotFound {
+            kind: "window".to_owned(),
+            id: SHELL_WINDOW_LABEL.to_owned(),
+        })?;
+
+    window.show().map_err(|_| IpcError::Internal {
+        trace_id: next_trace_id(),
+    })
+}
+
 /// Where a surface is.
 ///
 /// The monitor is absent when no display is attached — a closed lid with
@@ -221,6 +336,8 @@ fn next_trace_id() -> TraceId {
 pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         contract_describe,
+        display_describe,
+        shell_report_first_frame,
         surface_register,
         surface_release,
         surface_report_first_frame
