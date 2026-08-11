@@ -5,6 +5,7 @@
 //! where it can be tested without the Tauri harness.
 
 mod desktop_host;
+mod reveal;
 mod surface;
 
 use std::sync::Arc;
@@ -14,7 +15,7 @@ use devdesk_core::window::SurfaceHost;
 use devdesk_display::{DisplayGraph, SharedTopology};
 use devdesk_ipc::SHELL_WINDOW_LABEL;
 use devdesk_platform::PlatformBackend;
-use tauri::{App, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{App, AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use desktop_host::DesktopHost;
 
@@ -124,7 +125,7 @@ fn start_desktop(
 
         DesktopMode::Windowed { reason } => {
             eprintln!("devdesk: window mode — {reason}");
-            create_shell_window(app)
+            create_shell_window(&app.handle().clone())
         }
     }
 }
@@ -132,14 +133,24 @@ fn start_desktop(
 /// The shell's own window, for window mode (`DH-7`).
 ///
 /// Created hidden, with the same AC-FRE-1.1 discipline surfaces get: the shell
-/// flashing white on launch is the same defect at desktop size.
-/// `shell_report_first_frame` reveals it once the webview has painted.
-fn create_shell_window(app: &App) -> tauri::Result<()> {
-    WebviewWindowBuilder::new(app, SHELL_WINDOW_LABEL, WebviewUrl::default())
-        .title("DevDesk")
-        .inner_size(1280.0, 800.0)
-        .visible(false)
-        .build()?;
+/// flashing white on launch is the same defect at desktop size. The reveal hook
+/// shows it once its document has loaded.
+///
+/// Already having one is success, not a conflict. This is called both at startup
+/// and after desktop attachment is abandoned, and the second call must not fail
+/// on a label the first one took — `DH-7` promises a window, not a new one.
+pub(crate) fn create_shell_window(app: &AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window(SHELL_WINDOW_LABEL).is_some() {
+        return Ok(());
+    }
+
+    reveal::when_content_loads_plain(
+        WebviewWindowBuilder::new(app, SHELL_WINDOW_LABEL, WebviewUrl::default())
+            .title("DevDesk")
+            .inner_size(1280.0, 800.0)
+            .visible(false),
+    )
+    .build()?;
 
     Ok(())
 }

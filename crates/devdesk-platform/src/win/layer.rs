@@ -8,29 +8,29 @@
 //!
 //! # The sequence
 //!
-//! Explorer's desktop is two sibling windows under `Progman`:
+//! Sending `Progman` the undocumented-but-stable message `0x052C` asks Explorer
+//! to expose a `WorkerW` behind the desktop icons. **Where that `WorkerW` ends
+//! up differs by Windows build**, and both shapes are live in the field:
 //!
 //! ```text
-//! Progman
-//! ├── WorkerW              ← the wallpaper host, sometimes absent
-//! └── SHELLDLL_DefView     ← the icon list
-//!     └── SysListView32
+//! Windows 10                          Windows 11
+//! ──────────                          ──────────
+//! WorkerW           ← icons           Progman
+//! └── SHELLDLL_DefView                ├── SHELLDLL_DefView   ← icons, on top
+//! WorkerW           ← parent here     └── WorkerW            ← parent here
 //! ```
 //!
-//! Sending `Progman` the undocumented-but-stable message `0x052C` asks it to
-//! split the wallpaper onto a separate `WorkerW` that sits *behind* the icons.
-//! After that the tree is:
+//! On 10 the wallpaper host is promoted to a **top-level sibling** of the window
+//! holding the icons. On 11 it stays a **child of `Progman`**, listed after
+//! `SHELLDLL_DefView` — which is to say beneath it in z-order, which is the
+//! wallpaper slot.
 //!
-//! ```text
-//! Progman
-//! ├── WorkerW              ← icons live here now
-//! │   └── SHELLDLL_DefView
-//! └── WorkerW              ← empty; this is the one to parent into
-//! ```
-//!
-//! The target is therefore "the `WorkerW` that has no `SHELLDLL_DefView` child",
-//! not "the first `WorkerW`" — the two swap order between Windows builds and
-//! between a fresh login and an Explorer restart.
+//! Both are checked, and whichever is found must own no `SHELLDLL_DefView`: the
+//! `WorkerW` that holds the icons is the wrong one, and parenting into it would
+//! put DevDesk in front of them. A build with neither shape degrades rather than
+//! guessing — an 11 desktop also carries a crowd of unrelated 133×38 top-level
+//! `WorkerW` windows, and picking one of those would attach the desktop to
+//! something the size of a tooltip.
 //!
 //! Every step can fail, and `DH-6` requires that failure be a value: a machine
 //! where `Progman` is absent (a session with no shell, some kiosk configurations,
@@ -183,7 +183,7 @@ fn attach_to_wallpaper_host(window: WindowHandle) -> Result<(), PlatformError> {
 
     request_worker_w(progman);
 
-    let Some(host) = find_wallpaper_worker_w() else {
+    let Some(host) = wallpaper_host(progman) else {
         return Err(unsupported(
             "Explorer did not expose a wallpaper WorkerW; the desktop may be managed \
              by a shell replacement",
@@ -198,6 +198,52 @@ fn attach_to_wallpaper_host(window: WindowHandle) -> Result<(), PlatformError> {
         .map_err(|error| super::os_call("SetParent(attach)", &error))?;
 
     Ok(())
+}
+
+/// The `WorkerW` that hosts the wallpaper, in whichever shape this build has.
+///
+/// Explorer has published two layouts, and neither is documented:
+///
+/// - **Windows 10.** `0x052C` promotes the wallpaper `WorkerW` to a *top-level
+///   sibling* of the window that owns `SHELLDLL_DefView`.
+/// - **Windows 11.** The wallpaper `WorkerW` is a *child of `Progman`*, listed
+///   after `SHELLDLL_DefView` — which is to say beneath it in z-order, which is
+///   exactly the wallpaper slot.
+///
+/// The sibling form is tried first, because a build that has it also has a crowd
+/// of unrelated 133×38 `WorkerW` windows the child lookup must not be reached
+/// for. Both candidates are then required to own no `SHELLDLL_DefView`: the one
+/// that holds the icons is the wrong `WorkerW`, and parenting into it would put
+/// DevDesk in front of them.
+fn wallpaper_host(progman: HWND) -> Option<HWND> {
+    sibling_of_icon_host()
+        .or_else(|| child_worker_w(progman))
+        .filter(|candidate| !owns_icons(*candidate))
+}
+
+/// A `WorkerW` child of `Progman` (the Windows 11 layout).
+fn child_worker_w(progman: HWND) -> Option<HWND> {
+    let worker = to_wide("WorkerW");
+
+    // SAFETY: a child lookup on a window this process did not create but does
+    // not modify. Reading the window tree is not modifying it (`DH-1`).
+    unsafe { FindWindowExW(Some(progman), None, PCWSTR(worker.as_ptr()), PCWSTR::null()) }.ok()
+}
+
+/// Whether a window owns the desktop icon list.
+fn owns_icons(candidate: HWND) -> bool {
+    let shell_view = to_wide("SHELLDLL_DefView");
+
+    // SAFETY: a child lookup on a live window handle.
+    unsafe {
+        FindWindowExW(
+            Some(candidate),
+            None,
+            PCWSTR(shell_view.as_ptr()),
+            PCWSTR::null(),
+        )
+    }
+    .is_ok()
 }
 
 /// Finds `Progman`, the desktop's root window.
@@ -234,18 +280,17 @@ fn request_worker_w(progman: HWND) {
     };
 }
 
-/// The `WorkerW` that hosts the wallpaper.
+/// The top-level `WorkerW` sibling of the window that owns `SHELLDLL_DefView`.
 ///
-/// Found by locating the window that owns `SHELLDLL_DefView` — the icon host —
-/// and taking its next `WorkerW` sibling, which is the empty one Explorer
-/// created to hold the wallpaper when it moved the icons up.
+/// The Windows 10 layout: Explorer moves the icons up into one `WorkerW` and
+/// leaves an empty one behind it to hold the wallpaper.
 ///
 /// Enumerating top-level windows rather than walking `Progman`'s children,
 /// because Explorer promotes the wallpaper `WorkerW` to a top-level sibling of
 /// `Progman` on most builds after `0x052C` — it is `Progman`'s child on some and
 /// the desktop's on others, and depending on which would make this work on one
 /// Windows version.
-fn find_wallpaper_worker_w() -> Option<HWND> {
+fn sibling_of_icon_host() -> Option<HWND> {
     /// Receives the window found. Travels through `LPARAM` because `EnumWindows`
     /// takes a bare `extern "system"` function that can capture nothing, and the
     /// enumeration is synchronous — the pointer cannot outlive this frame.

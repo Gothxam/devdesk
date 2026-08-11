@@ -28,13 +28,23 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, Webv
 
 /// The band host windows attach to.
 ///
-/// `Desktop`, not `Wallpaper`. A window parented into `WorkerW` sits behind
-/// `SHELLDLL_DefView`, which covers the whole desktop and takes every click on
-/// it — so a wallpaper-parented desktop can never be clicked, and `DH-17`'s
-/// input region would have nothing to admit. The `Desktop` band is above the
-/// icons and below every ordinary window, which is both what `DH-16` asks for
-/// ("behind normal windows") and where an interactive widget can live.
-const HOST_LAYER: SurfaceLayer = SurfaceLayer::Desktop;
+/// `Wallpaper` — reparented into `WorkerW`, behind the desktop icons.
+///
+/// The `Desktop` band was tried first, on the reasoning that a wallpaper-hosted
+/// window sits behind `SHELLDLL_DefView` and can therefore never be clicked. It
+/// can't; that turns out to be the point. DevDesk paints a **whole-monitor
+/// background**, so in the `Desktop` band it covered the user's icons with an
+/// opaque surface that clicks passed straight through — icons present, visible
+/// nowhere, still clickable. In the wallpaper band the icons draw on top, where
+/// they belong, and `DH-16` holds by construction rather than by a region we
+/// have to keep correct: every click on the desktop reaches the desktop, because
+/// DevDesk is not in front of it.
+///
+/// The cost is that widgets are not clickable. Every widget DevDesk ships today
+/// is read-only, so nothing is lost yet; the band that admits input is still
+/// implemented, and moving a surface to it is a one-line change when there is an
+/// interactive widget to justify it (`ADR-0005` Amendment 1).
+const HOST_LAYER: SurfaceLayer = SurfaceLayer::Wallpaper;
 
 /// The live desktop host.
 ///
@@ -60,6 +70,15 @@ struct HostState {
 
     /// Where this machine ended up.
     mode: DesktopMode,
+
+    /// Which desktop this is: 0 at startup, incremented on every recovery.
+    ///
+    /// Part of every host window's label, because a label cannot be reclaimed.
+    /// Explorer destroys our windows without going through Tauri, so Tauri's
+    /// registry keeps the old label forever and every recreate collides with a
+    /// window that no longer exists. A name that cannot be freed is a name to
+    /// stop using.
+    generation: u64,
 }
 
 impl DesktopHost {
@@ -74,6 +93,7 @@ impl DesktopHost {
                 mode: DesktopMode::Windowed {
                     reason: "the desktop host has not started yet".to_owned(),
                 },
+                generation: 0,
             }),
         }
     }
@@ -106,14 +126,15 @@ impl DesktopHost {
 
         let changes = state.plan.changes_to(&next);
         let origin = next.virtual_origin();
+        let generation = state.generation;
 
         for change in &changes {
-            if let Err(reason) = self.execute(backend, change, (origin.x, origin.y)) {
+            if let Err(reason) = self.execute(backend, change, (origin.x, origin.y), generation) {
                 // DH-4: never a half-attached window. Both plans are torn down
                 // — the one being built and whatever was already there — so
                 // window mode starts from a desk with nothing on it.
-                self.tear_down(&state.plan);
-                self.tear_down(&next);
+                self.tear_down(&state.plan, generation);
+                self.tear_down(&next, generation);
                 state.plan = HostPlan::empty();
                 state.mode = DesktopMode::Windowed { reason };
 
@@ -186,14 +207,24 @@ impl DesktopHost {
         // changed, and leaving the windows would make every `Create` collide
         // with a label that already exists.
         if let Ok(mut state) = self.state.lock() {
-            self.tear_down(&state.plan);
+            // The old generation, because that is the name the dead windows
+            // still hold. Advancing first would tear down labels nothing owns.
+            self.tear_down(&state.plan, state.generation);
             state.plan = HostPlan::empty();
+            state.generation = state.generation.saturating_add(1);
         }
 
         let mode = self.apply(backend, graph);
 
         if let Ok(mut state) = self.state.lock() {
             state.recovery.attempted(at, mode.is_attached());
+        }
+
+        // `XP-3`: a retry that fails silently is a retry nobody can diagnose.
+        // Every attempt says what went wrong, so a machine that exhausts the
+        // budget leaves six reasons behind rather than one verdict.
+        if let Some(reason) = mode.reason() {
+            eprintln!("devdesk: re-attach attempt failed — {reason}");
         }
     }
 
@@ -203,12 +234,13 @@ impl DesktopHost {
         backend: &dyn PlatformBackend,
         change: &HostWindowChange,
         origin: (i32, i32),
+        generation: u64,
     ) -> Result<(), String> {
         match change {
-            HostWindowChange::Create(window) => self.create(backend, window, origin),
-            HostWindowChange::Move(window) => self.reposition(window, origin),
+            HostWindowChange::Create(window) => self.create(backend, window, origin, generation),
+            HostWindowChange::Move(window) => self.reposition(window, origin, generation),
             HostWindowChange::Destroy(id) => {
-                self.destroy(id);
+                self.destroy(id, generation);
                 Ok(())
             }
         }
@@ -225,23 +257,32 @@ impl DesktopHost {
         backend: &dyn PlatformBackend,
         window: &HostWindow,
         origin: (i32, i32),
+        generation: u64,
     ) -> Result<(), String> {
-        let label = label_for(&window.id);
+        let label = label_for(&window.id, generation);
 
-        let built = WebviewWindowBuilder::new(&self.app, &label, entry_url(&window.id))
-            .visible(false)
-            .decorations(false)
-            .shadow(false)
-            .skip_taskbar(true)
-            .resizable(false)
-            .focused(false)
-            .build()
-            .map_err(|error| {
-                format!(
-                    "host window for {} could not be created: {error}",
-                    window.id
-                )
-            })?;
+        let built = crate::reveal::when_content_loads(
+            WebviewWindowBuilder::new(&self.app, &label, entry_url(&window.id))
+                .visible(false)
+                .decorations(false)
+                .shadow(false)
+                .skip_taskbar(true)
+                .resizable(false)
+                .focused(false),
+            // Revealing a window rewrites its extended style, so everything
+            // attachment set has to go back on afterwards. Attaching only here
+            // would be simpler but would lose `DH-6`: a failure would surface on
+            // a webview callback with nobody to report it to, instead of on the
+            // path that can still fall back to window mode.
+            reassert,
+        )
+        .build()
+        .map_err(|error| {
+            format!(
+                "host window for {} could not be created: {error}",
+                window.id
+            )
+        })?;
 
         let handle = native_handle(&built).ok_or_else(|| {
             format!(
@@ -266,8 +307,13 @@ impl DesktopHost {
     }
 
     /// Moves an existing host window to match a changed monitor.
-    fn reposition(&self, window: &HostWindow, origin: (i32, i32)) -> Result<(), String> {
-        let label = label_for(&window.id);
+    fn reposition(
+        &self,
+        window: &HostWindow,
+        origin: (i32, i32),
+        generation: u64,
+    ) -> Result<(), String> {
+        let label = label_for(&window.id, generation);
 
         let existing = self
             .app
@@ -281,17 +327,20 @@ impl DesktopHost {
     ///
     /// A window that is already gone is not an error: teardown ordering is not
     /// something a caller should have to reason about, the same rule the surface
-    /// sink follows.
-    fn destroy(&self, id: &HostWindowId) {
-        if let Some(existing) = self.app.get_webview_window(&label_for(id)) {
+    /// sink follows. A destroy that *fails* is not an error either, and is the
+    /// normal case after a shell restart: the native window died with its
+    /// parent, and what is left is a registry entry Tauri cannot be told about.
+    /// The generation in the label is what makes that survivable.
+    fn destroy(&self, id: &HostWindowId, generation: u64) {
+        if let Some(existing) = self.app.get_webview_window(&label_for(id, generation)) {
             let _ = existing.destroy();
         }
     }
 
     /// Destroys every window a plan describes.
-    fn tear_down(&self, plan: &HostPlan) {
+    fn tear_down(&self, plan: &HostPlan, generation: u64) {
         for window in plan.windows() {
-            self.destroy(&window.id);
+            self.destroy(&window.id, generation);
         }
     }
 
@@ -313,7 +362,13 @@ impl DesktopHost {
 /// collision would point two monitors at one window, which the uniqueness of the
 /// monitor id makes vanishingly unlikely and which `DH-13` would catch as a
 /// missing display.
-fn label_for(id: &HostWindowId) -> String {
+///
+/// The **generation** is what makes recovery possible. Explorer destroys host
+/// windows without going through Tauri, so Tauri's registry keeps the label of a
+/// window that no longer exists and refuses to reuse it. Nothing can clear that
+/// entry from outside, so recovery stops asking: each rebuilt desktop takes the
+/// next generation, and a name nothing holds.
+fn label_for(id: &HostWindowId, generation: u64) -> String {
     let sanitised: String = id
         .monitor()
         .as_str()
@@ -327,7 +382,29 @@ fn label_for(id: &HostWindowId) -> String {
         })
         .collect();
 
-    format!("desktop-host-{sanitised}")
+    format!("desktop-host-{generation}-{sanitised}")
+}
+
+/// Puts back the window state a reveal took off.
+///
+/// Showing a window rewrites its extended style, which drops the input
+/// transparency and non-activation that attachment set — precisely the
+/// properties that only start to matter once the window is visible. Re-running
+/// attachment is idempotent, so doing it again costs nothing and doing it too
+/// few times leaves a full-monitor window swallowing every click on the desktop.
+///
+/// Failures are swallowed because there is no caller: this runs on a webview
+/// callback, after `create` has already reported whether attachment works at
+/// all. A failure here means the second attempt at something that succeeded
+/// once, and the honest response is the same window in the same place.
+fn reassert<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
+    let Some(handle) = native_handle(window) else {
+        return;
+    };
+
+    let backend = devdesk_platform::current_backend();
+    let _ = backend.attach_to_layer(handle, HOST_LAYER);
+    let _ = backend.set_click_through(handle, true);
 }
 
 /// The URL a host window loads: the shell, told which monitor it is on.
@@ -508,8 +585,21 @@ fn wait_out_debounce(app: AppHandle, clock: Clock) {
                 ReattachTrigger::Abandon => {
                     eprintln!(
                         "devdesk: the desktop could not be re-attached after the shell \
-                         restarted; staying in window mode"
+                         restarted; falling back to window mode"
                     );
+
+                    // `DH-7`: window mode is the floor, and a floor with no
+                    // window on it is not a fallback. The host windows went with
+                    // the shell, so without this the user is left looking at a
+                    // desktop that simply lost its widgets, from a process that
+                    // is still running and still reports itself healthy.
+                    let handle = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        if let Err(error) = crate::create_shell_window(&handle) {
+                            eprintln!("devdesk: the fallback window failed too: {error}");
+                        }
+                    });
+
                     return;
                 }
             }

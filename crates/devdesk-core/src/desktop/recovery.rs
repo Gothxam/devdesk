@@ -21,11 +21,42 @@ pub const RECOVERY_DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// How many consecutive failures before giving up.
 ///
-/// `DH-12` prohibits retrying indefinitely. One retry, because the realistic
-/// failure is a race — the hint arrives before Explorer has finished creating
-/// `WorkerW` — and a second attempt a debounce later is the cheapest way to
-/// distinguish that from a machine where attachment cannot work at all.
-pub const MAX_ATTEMPTS: u32 = 2;
+/// `DH-12` prohibits retrying indefinitely, and this is the bound. Six attempts
+/// with the backoff below span about sixteen seconds, which is what an Explorer
+/// restart actually costs: `TaskbarCreated` arrives when the *taskbar* is
+/// created, and the desktop's `WorkerW` is rebuilt some seconds later. A budget
+/// measured in hundreds of milliseconds gives up while the shell is still
+/// starting and reports a machine that cannot attach when in fact nobody waited.
+pub const MAX_ATTEMPTS: u32 = 6;
+
+/// The longest gap between attempts.
+///
+/// Caps the doubling so a late attempt is still a wait rather than a hang, and
+/// so the total is arithmetic anyone can check: 0.25 + 0.5 + 1 + 2 + 4 + 8.
+pub const MAX_BACKOFF: Duration = Duration::from_secs(8);
+
+/// How long to wait before attempt number `attempts`.
+///
+/// Doubling, because the two failure modes want different things. A restart
+/// still in progress wants patience measured in seconds; a machine that can
+/// never attach wants to reach the ceiling and stop. One retry every 250 ms
+/// would serve the first badly and spend the idle budget (`B-4`) doing it.
+#[must_use]
+pub const fn backoff_for(attempts: u32) -> Duration {
+    let millis = match RECOVERY_DEBOUNCE.as_millis().checked_shl(attempts) {
+        Some(scaled) => scaled,
+        // The shift overflowed, which means the attempt count is far past
+        // `MAX_ATTEMPTS` and `poll` has already abandoned. The cap is the only
+        // answer that cannot be wrong.
+        None => MAX_BACKOFF.as_millis(),
+    };
+
+    if millis > MAX_BACKOFF.as_millis() {
+        MAX_BACKOFF
+    } else {
+        Duration::from_millis(millis as u64)
+    }
+}
 
 /// A monotonic clock reading, in milliseconds since an arbitrary origin.
 ///
@@ -112,7 +143,7 @@ impl RecoveryState {
             return ReattachTrigger::Abandon;
         }
 
-        if now.since(since).as_millis() < RECOVERY_DEBOUNCE.as_millis() {
+        if now.since(since).as_millis() < backoff_for(self.attempts).as_millis() {
             return ReattachTrigger::Wait;
         }
 

@@ -24,5 +24,6 @@ mod tests;
 pub use mode::{DesktopMode, ModeRequest, MODE_ENV_VAR};
 pub use plan::{HostPlan, HostWindow, HostWindowChange, HostWindowId};
 pub use recovery::{
-    ReattachTrigger, RecoveryClock, RecoveryState, MAX_ATTEMPTS, RECOVERY_DEBOUNCE,
+    backoff_for, ReattachTrigger, RecoveryClock, RecoveryState, MAX_ATTEMPTS, MAX_BACKOFF,
+    RECOVERY_DEBOUNCE,
 };

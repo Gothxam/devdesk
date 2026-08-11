@@ -10,8 +10,8 @@ use devdesk_display::{DisplayGraph, MonitorDescriptor, Topology};
 use devdesk_platform::{Connector, ConnectorKind, RawMonitorInfo, RawRect};
 
 use super::{
-    DesktopMode, HostPlan, HostWindowChange, HostWindowId, ModeRequest, ReattachTrigger,
-    RecoveryClock, RecoveryState, MAX_ATTEMPTS,
+    backoff_for, DesktopMode, HostPlan, HostWindowChange, HostWindowId, ModeRequest,
+    ReattachTrigger, RecoveryClock, RecoveryState, MAX_ATTEMPTS, MAX_BACKOFF, RECOVERY_DEBOUNCE,
 };
 
 /// One display, built the way production builds one.
@@ -278,7 +278,7 @@ fn a_successful_reattach_returns_to_rest() {
 }
 
 #[test]
-fn a_failed_reattach_waits_another_debounce_rather_than_spinning() {
+fn a_failed_reattach_backs_off_rather_than_spinning() {
     // DH-12 prohibits retrying indefinitely, and a retry loop with no delay is
     // the busy-wait it is about — it would spend the idle budget (B-4) on a
     // machine that is already not working.
@@ -288,8 +288,37 @@ fn a_failed_reattach_waits_another_debounce_rather_than_spinning() {
     assert_eq!(state.poll(RecoveryClock(250)), ReattachTrigger::Reattach);
     state.attempted(RecoveryClock(250), false);
 
-    assert_eq!(state.poll(RecoveryClock(251)), ReattachTrigger::Wait);
-    assert_eq!(state.poll(RecoveryClock(500)), ReattachTrigger::Reattach);
+    // The second attempt waits 500 ms, not another 250: one failure is evidence
+    // the shell is still starting, and asking again immediately learns nothing.
+    assert_eq!(state.poll(RecoveryClock(500)), ReattachTrigger::Wait);
+    assert_eq!(state.poll(RecoveryClock(750)), ReattachTrigger::Reattach);
+}
+
+#[test]
+fn the_retry_budget_spans_a_real_explorer_restart() {
+    // TaskbarCreated arrives when the *taskbar* is created; the desktop WorkerW
+    // is rebuilt seconds later. A budget in hundreds of milliseconds gives up
+    // while the shell is still starting and then reports a machine that cannot
+    // attach, when in fact nobody waited.
+    let total: u64 = (0..MAX_ATTEMPTS)
+        .map(|attempt| u64::try_from(backoff_for(attempt).as_millis()).unwrap_or(u64::MAX))
+        .sum();
+
+    assert!(
+        total >= 10_000,
+        "the retry budget is {total} ms, too short for a shell restart"
+    );
+}
+
+#[test]
+fn the_backoff_doubles_and_then_stops_doubling() {
+    assert_eq!(backoff_for(0), RECOVERY_DEBOUNCE);
+    assert_eq!(backoff_for(1), RECOVERY_DEBOUNCE * 2);
+    assert_eq!(backoff_for(2), RECOVERY_DEBOUNCE * 4);
+
+    // Capped, so a late attempt is still a wait rather than a hang — and so an
+    // attempt count past the ceiling cannot overflow into a tiny delay.
+    assert_eq!(backoff_for(99), MAX_BACKOFF);
 }
 
 #[test]
@@ -300,14 +329,19 @@ fn repeated_failure_abandons_into_window_mode() {
     let mut state = RecoveryState::new();
     state.hint(RecoveryClock(0));
 
-    let mut now = 250;
-    for _ in 0..MAX_ATTEMPTS {
+    let mut now = 0_u64;
+    for attempt in 0..MAX_ATTEMPTS {
+        now += u64::try_from(backoff_for(attempt).as_millis()).unwrap_or(u64::MAX);
         assert_eq!(state.poll(RecoveryClock(now)), ReattachTrigger::Reattach);
         state.attempted(RecoveryClock(now), false);
-        now += 250;
     }
 
+    // However long we wait now, the answer is the same.
     assert_eq!(state.poll(RecoveryClock(now)), ReattachTrigger::Abandon);
+    assert_eq!(
+        state.poll(RecoveryClock(now + 3_600_000)),
+        ReattachTrigger::Abandon
+    );
 }
 
 #[test]
