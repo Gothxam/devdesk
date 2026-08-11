@@ -20,3 +20,17 @@ export * from './generated/contract';
  * writes — a manifest — which no Rust signature can generate.
  */
 export * from './widget';
+
+/**
+ * Toggles desktop host interactivity (Edit Mode bridge).
+ * Safely invokes Tauri command desktop_set_edit_mode when running in native desktop host.
+ */
+export async function invokeDesktopSetEditMode(enabled: boolean): Promise<void> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('desktop_set_edit_mode', { enabled });
+  } catch {
+    // browser mode fallback
+  }
+}
+

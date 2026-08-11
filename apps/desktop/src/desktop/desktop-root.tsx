@@ -8,7 +8,7 @@
  * the rendering source of truth.
  */
 
-import { parseWidgetInstanceId, type WidgetInstanceId } from '@devdesk/contracts';
+import { invokeDesktopSetEditMode, parseWidgetInstanceId, type WidgetInstanceId } from '@devdesk/contracts';
 import type { CompositionFrame } from '@devdesk/widget-engine';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -40,6 +40,11 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
   const [editingInstanceId, setEditingInstanceId] = useState<string | undefined>(undefined);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [snapGuides, setSnapGuides] = useState<readonly SnapGuide[]>([]);
+
+  // Sync Native Host Interactivity with isEditMode
+  useEffect(() => {
+    void invokeDesktopSetEditMode(isEditMode);
+  }, [isEditMode]);
 
   // Placements cache synced with LayoutStorage adapter
   const [placements, setPlacements] = useState<Map<string, WidgetPlacementRecord>>(() => {
@@ -77,6 +82,7 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+
 
   // Save placements helper
   const updatePlacement = useCallback((instanceId: string, updater: (prev: WidgetPlacementRecord) => WidgetPlacementRecord) => {

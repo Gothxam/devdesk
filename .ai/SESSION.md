@@ -388,4 +388,23 @@ SurfaceManager
 - **Verification**: `pnpm check:types` and `pnpm test` (all 416 Vitest unit tests) passed 100% green.
 
 
+---
+
+## 📅 Session Log: 2026-08-11 — Stage 6: Native Desktop Edit Mode Interactivity Bridge
+
+- **Agent**: Antigravity (Google DeepMind)
+- **Task**: Implement Native Tauri Command Bridge (`desktop_set_edit_mode`) to dynamically toggle Win32 `WS_EX_TRANSPARENT` style on desktop host windows when entering/exiting Edit Mode.
+- **Files Changed**:
+  - `apps/desktop/src-tauri/src/desktop_host.rs` (Implemented `set_edit_mode(&self, enabled: bool)` to invoke `backend.set_click_through(handle, !enabled)` across all desktop host windows)
+  - `apps/desktop/src-tauri/src/lib.rs` (Registered `desktop_set_edit_mode` IPC command handler)
+  - `packages/contracts/src/index.ts` (Exported `invokeDesktopSetEditMode(enabled: boolean)` helper for UI integration)
+  - `apps/desktop/src/desktop/desktop-root.tsx` (Synced `isEditMode` state changes to native desktop host bridge)
+  - `.ai/SESSION.md` (Logged session entry)
+- **Decisions Made**:
+  - When Edit Mode is OFF: `WS_EX_TRANSPARENT` is active, maintaining 100% native click-through wallpaper behavior to Windows Explorer.
+  - When Edit Mode is ON: `WS_EX_TRANSPARENT` is disabled via `set_edit_mode(true)`, enabling full pointer events, dragging, resizing, context menu triggering, and keyboard input (`Ctrl+E`).
+- **Verification**: `cargo check -p devdesk-app` (Rust build OK), `cargo test --workspace` (all 104 Rust tests passed), `pnpm check:types`, and `pnpm test` (all 416 Vitest tests passed 100% green).
+
+
+
 

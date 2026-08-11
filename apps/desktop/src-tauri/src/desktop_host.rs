@@ -98,6 +98,36 @@ impl DesktopHost {
         }
     }
 
+    /// Sets desktop host interactivity (Edit Mode bridge).
+    ///
+    /// When `enabled` is `true` (Edit Mode ON):
+    ///   `WS_EX_TRANSPARENT` is disabled so host windows receive pointer events,
+    ///   dragging, resizing, right-clicks, and keyboard focus for `Ctrl+E`.
+    /// When `enabled` is `false` (Edit Mode OFF):
+    ///   `WS_EX_TRANSPARENT` is re-applied, restoring click-through behavior.
+    pub fn set_edit_mode(&self, enabled: bool) {
+        let backend = devdesk_platform::current_backend();
+        let click_through = !enabled;
+
+        if let Ok(state) = self.state.lock() {
+            for window in state.plan.windows() {
+                let label = label_for(&window.id, state.generation);
+                if let Some(existing) = self.app.get_webview_window(&label) {
+                    if let Some(handle) = native_handle(&existing) {
+                        let _ = backend.set_click_through(handle, click_through);
+                    }
+                }
+            }
+        }
+
+        if let Some(shell_win) = self.app.get_webview_window(devdesk_ipc::SHELL_WINDOW_LABEL) {
+            if let Some(handle) = native_handle(&shell_win) {
+                let _ = backend.set_click_through(handle, click_through);
+            }
+        }
+    }
+
+
     /// Brings the host windows in line with a topology.
     ///
     /// The one entry point: startup, hotplug, and shell-restart recovery all

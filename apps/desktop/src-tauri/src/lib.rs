@@ -19,6 +19,13 @@ use tauri::{App, AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use desktop_host::DesktopHost;
 
+#[tauri::command]
+fn desktop_set_edit_mode(app: tauri::AppHandle, enabled: bool) {
+    if let Some(host) = app.try_state::<DesktopHost>() {
+        host.set_edit_mode(enabled);
+    }
+}
+
 /// Builds and runs the DevDesk host.
 ///
 /// # Errors
@@ -32,7 +39,17 @@ pub fn run() -> tauri::Result<()> {
     let contract = devdesk_ipc::builder();
 
     tauri::Builder::default()
-        .invoke_handler(contract.invoke_handler())
+        .invoke_handler(move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
+            if invoke.message.command() == "desktop_set_edit_mode" {
+                let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![desktop_set_edit_mode];
+                handler(invoke);
+                true
+            } else {
+                contract.invoke_handler()(invoke)
+            }
+        })
+
+
         .setup(|app| {
             // The window subsystem, wired to Tauri. Constructed here rather than
             // earlier because the sink needs an `AppHandle`, which does not
@@ -57,6 +74,7 @@ pub fn run() -> tauri::Result<()> {
         })
         .run(tauri::generate_context!())
 }
+
 
 /// Enumerates displays once and publishes the result.
 ///
