@@ -5,7 +5,10 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['packages/*/src/**/*.test.ts', 'apps/*/src/**/*.test.ts'],
-    benchmark: { include: ['packages/*/src/**/*.bench.ts'] },
+    // Benchmarks live beside their subject, including the end-to-end ones in
+    // the shell — the assembled pipeline can only be measured where it is
+    // assembled.
+    benchmark: { include: ['packages/*/src/**/*.bench.ts', 'apps/*/src/**/*.bench.ts'] },
     environment: 'node',
     restoreMocks: true,
   },
