@@ -73,9 +73,9 @@ interface DemoPlacement {
  * click passing through a surface.
  */
 const DEMO_PLACEMENTS: readonly DemoPlacement[] = Object.freeze([
-  { ordinal: 1, rect: rect(48, 48, 260, 150), layer: 'desktop', glassy: false, pointerMode: 'interactive' },
-  { ordinal: 2, rect: rect(220, 130, 260, 150), layer: 'normal', glassy: true, pointerMode: 'interactive' },
-  { ordinal: 3, rect: rect(120, 96, 300, 96), layer: 'overlay', glassy: true, pointerMode: 'click-through' },
+  { ordinal: 1, rect: rect(40, 40, 360, 240), layer: 'desktop', glassy: false, pointerMode: 'interactive' },
+  { ordinal: 2, rect: rect(200, 120, 480, 380), layer: 'normal', glassy: true, pointerMode: 'interactive' },
+  { ordinal: 3, rect: rect(120, 90, 440, 220), layer: 'overlay', glassy: true, pointerMode: 'click-through' },
 ]);
 
 /** What the controller reports outward. */
