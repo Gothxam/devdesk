@@ -19,9 +19,10 @@ pub struct WindowHandle(u64);
 impl WindowHandle {
     /// The native value, for the backend that owns this platform.
     #[must_use]
-    pub(crate) const fn raw(self) -> u64 {
+    pub const fn raw(self) -> u64 {
         self.0
     }
+
 
     /// A handle the host obtained from its own window.
     ///

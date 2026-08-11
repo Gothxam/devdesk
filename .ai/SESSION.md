@@ -424,6 +424,23 @@ SurfaceManager
 - **Verification**: `cargo check -p devdesk-app` (Rust build OK), `pnpm check:types`, and `pnpm test` (all 416 Vitest tests passed 100% green).
 
 
+---
+
+## 📅 Session Log: 2026-08-11 — Stage 6: Desktop Interactivity IPC Bridge & Webview Window Enumeration Fix
+
+- **Agent**: Antigravity (Google DeepMind)
+- **Task**: Fix desktop Edit Mode interactivity failure by updating `DesktopHost::set_edit_mode` to iterate all active Tauri webview windows (`self.app.webview_windows()`) and matching IPC command routing.
+- **Files Changed**:
+  - `apps/desktop/src-tauri/src/desktop_host.rs` (Refactored `set_edit_mode` to iterate `self.app.webview_windows()` guaranteeing `set_click_through(handle, !enabled)` executes on all host windows)
+  - `apps/desktop/src-tauri/src/lib.rs` (Updated IPC command handler matching for `desktop_set_edit_mode` with logging)
+  - `crates/devdesk-platform/src/window.rs` (Made `WindowHandle::raw(self)` public)
+  - `.ai/SESSION.md` (Logged session entry)
+- **Decisions Made**:
+  - Iterating `self.app.webview_windows()` dynamically reaches all active Tauri host windows (`desktop-host-0-DISPLAY1`, `desktop-host-0-DISPLAY2`, `main`), guaranteeing `click_through=false` (`WS_EX_TRANSPARENT` removal) executes on all monitors upon entering Edit Mode.
+- **Verification**: `cargo test --workspace` (all 104 Rust tests passed), `cargo check -p devdesk-app` (passed 100%), `pnpm check:types`, and `pnpm test` (all 416 Vitest tests passed 100% green).
+
+
+
 
 
 

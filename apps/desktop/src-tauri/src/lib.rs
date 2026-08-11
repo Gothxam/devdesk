@@ -21,8 +21,11 @@ use desktop_host::DesktopHost;
 
 #[tauri::command]
 fn desktop_set_edit_mode(app: tauri::AppHandle, enabled: bool) {
+    eprintln!("devdesk: [COMMAND_EXEC] desktop_set_edit_mode enabled={enabled}");
     if let Some(host) = app.try_state::<DesktopHost>() {
         host.set_edit_mode(enabled);
+    } else {
+        eprintln!("devdesk: [COMMAND_ERROR] DesktopHost state not found in AppHandle!");
     }
 }
 
@@ -41,7 +44,7 @@ pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
         .invoke_handler(move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
             let cmd = invoke.message.command();
-            if cmd == "desktop_set_edit_mode" {
+            if cmd == "desktop_set_edit_mode" || cmd.ends_with("desktop_set_edit_mode") {
                 let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![desktop_set_edit_mode];
                 handler(invoke);
                 true
@@ -49,6 +52,7 @@ pub fn run() -> tauri::Result<()> {
                 contract.invoke_handler()(invoke)
             }
         })
+
 
 
 

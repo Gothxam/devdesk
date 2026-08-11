@@ -109,23 +109,23 @@ impl DesktopHost {
         let backend = devdesk_platform::current_backend();
         let click_through = !enabled;
 
-        if let Ok(state) = self.state.lock() {
-            for window in state.plan.windows() {
-                let label = label_for(&window.id, state.generation);
-                if let Some(existing) = self.app.get_webview_window(&label) {
-                    if let Some(handle) = native_handle(&existing) {
-                        let _ = backend.set_click_through(handle, click_through);
-                    }
+        eprintln!("devdesk: [DESKTOP_HOST] set_edit_mode({enabled}) -> setting click_through={click_through}");
+
+        let windows = self.app.webview_windows();
+        eprintln!("devdesk: [DESKTOP_HOST] found {} active webview window(s) in Tauri app", windows.len());
+
+        for (label, window) in windows {
+            if let Some(handle) = native_handle(&window) {
+                let raw_hwnd = handle.raw();
+                eprintln!("devdesk: [DESKTOP_HOST] updating window '{label}' (HWND {raw_hwnd:#X}) -> click_through={click_through}");
+                let result = backend.set_click_through(handle, click_through);
+                if let Err(err) = result {
+                    eprintln!("devdesk: [DESKTOP_HOST_ERROR] set_click_through failed on '{label}': {err}");
                 }
             }
         }
-
-        if let Some(shell_win) = self.app.get_webview_window(devdesk_ipc::SHELL_WINDOW_LABEL) {
-            if let Some(handle) = native_handle(&shell_win) {
-                let _ = backend.set_click_through(handle, click_through);
-            }
-        }
     }
+
 
 
 
