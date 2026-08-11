@@ -23,6 +23,9 @@ importers:
       '@devdesk/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@devdesk/effects':
+        specifier: workspace:*
+        version: link:../../packages/effects
       '@devdesk/shared':
         specifier: workspace:*
         version: link:../../packages/shared
