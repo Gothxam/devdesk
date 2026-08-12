@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-host-window",
+  "description": "Minimum permissions for a desktop host window (ADR-0005 DH-13, one per monitor). SEC-9: core:default is deliberately absent. A host window needs to hear the interaction-mode event the native layer publishes and nothing else — the mode is entered by a system-wide hotkey the shell cannot reach, so without listen the UI would keep offering 'Edit Layout' over a desktop that had already become editable.",
+  "windows": ["desktop-host-*"],
+  "platforms": ["windows", "macOS", "linux"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

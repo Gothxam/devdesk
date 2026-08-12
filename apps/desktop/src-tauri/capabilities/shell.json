@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "shell-window",
-  "description": "Permissions for the DevDesk shell window: settings, library, onboarding.",
-  "windows": ["shell"],
+  "description": "Permissions for the DevDesk shell window: settings, library, onboarding. The label is `main` (devdesk_ipc::SHELL_WINDOW_LABEL); this said `shell`, matched nothing, and so granted the shell window none of the permissions listed below.",
+  "windows": ["main"],
   "platforms": ["windows", "macOS", "linux"],
   "permissions": [
     "core:event:allow-listen",

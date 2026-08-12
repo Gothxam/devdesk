@@ -224,7 +224,9 @@ fn start_desktop(
             // failure here is reported loudly rather than noted in passing.
             match desktop_host::watch_edit_hotkey(backend, app.handle().clone(), &EDIT_HOTKEYS) {
                 Ok(hotkey) => {
-                    eprintln!("devdesk: press {hotkey} to edit the desktop (then Ctrl+E or Escape)");
+                    eprintln!(
+                        "devdesk: press {hotkey} to edit the desktop (then Ctrl+E or Escape)"
+                    );
                 }
                 Err(error) => eprintln!(
                     "devdesk: no edit shortcut could be registered ({error}); the desktop \
