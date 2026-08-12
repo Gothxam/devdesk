@@ -821,8 +821,8 @@ fn window_mode_reason(request: ModeRequest, backend: &dyn PlatformBackend) -> St
 pub fn watch_edit_hotkey(
     backend: &dyn PlatformBackend,
     app: AppHandle,
-    hotkey: Hotkey,
-) -> Result<(), String> {
+    candidates: &[Hotkey],
+) -> Result<Hotkey, String> {
     let sink = HotkeySink::new(move || {
         let Some(host) = app.try_state::<DesktopHost>() else {
             return;
@@ -845,10 +845,22 @@ pub fn watch_edit_hotkey(
         });
     });
 
-    backend
-        .register_hotkey(hotkey, sink)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    // First that registers wins. Windows refuses a combination another process
+    // holds, and reporting which one actually works is the difference between a
+    // shortcut and a rumour.
+    let mut refused = "no candidate shortcuts were offered".to_owned();
+
+    for hotkey in candidates {
+        match backend.register_hotkey(*hotkey, sink.clone()) {
+            Ok(_) => return Ok(*hotkey),
+            Err(error) => {
+                eprintln!("devdesk: [EDIT] {hotkey} is unavailable: {error}");
+                refused = error.to_string();
+            }
+        }
+    }
+
+    Err(refused)
 }
 
 /// A monotonic reading, shared between the sink and the waiter it starts.

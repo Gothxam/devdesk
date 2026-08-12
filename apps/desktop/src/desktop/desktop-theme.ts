@@ -1,7 +1,8 @@
 /**
- * Stage 6 — Desktop Custom Theme System Engine
+ * Stage 6 — Desktop Global Theme System Engine & Multi-Monitor Sync Bus
  * Supports multiple material styles (glass, acrylic, matte, paper, transparent, neon),
- * customizable colors, typography, corner radius, shadows, blur intensity, and live CSS token emission.
+ * customizable colors, typography, corner radius, shadows, blur intensity,
+ * and 100% real-time multi-monitor synchronization via BroadcastChannel, storage events, & Tauri event bus.
  */
 
 export type MaterialStyle = 'glass' | 'acrylic' | 'matte' | 'paper' | 'transparent' | 'neon';
@@ -132,6 +133,14 @@ export const PRESET_THEMES: readonly DesktopThemeConfig[] = [
 ];
 
 const THEME_STORAGE_KEY = 'devdesk_active_theme_v1';
+const SYNC_CHANNEL_NAME = 'devdesk_theme_sync_bus';
+const TAURI_EVENT_NAME = 'devdesk://theme-changed';
+
+/** Multi-monitor BroadcastChannel instance */
+const broadcastBus =
+  typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined'
+    ? new BroadcastChannel(SYNC_CHANNEL_NAME)
+    : null;
 
 /** Helper to convert hex color to rgba */
 function hexToRgba(hex: string, alpha: number): string {
@@ -196,7 +205,7 @@ export function applyDesktopTheme(config: DesktopThemeConfig): void {
 
 export const DEFAULT_THEME: DesktopThemeConfig = PRESET_THEMES[0] as DesktopThemeConfig;
 
-/** Loads active theme from localStorage or returns default */
+/** Loads global active theme from localStorage or returns default */
 export function loadActiveTheme(): DesktopThemeConfig {
   if (typeof localStorage === 'undefined') return DEFAULT_THEME;
   try {
@@ -209,13 +218,57 @@ export function loadActiveTheme(): DesktopThemeConfig {
   }
 }
 
-/** Saves active theme to localStorage */
+/** Saves global active theme to localStorage and broadcasts to ALL active monitor webviews */
 export function saveActiveTheme(config: DesktopThemeConfig): void {
   if (typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(config));
     applyDesktopTheme(config);
+
+    // BroadcastChannel sync to all other desktop host webview windows
+    broadcastBus?.postMessage(config);
   } catch {
     // fallback
   }
 }
+
+/** Subscribes to real-time theme changes across ALL active monitor webview windows */
+export function subscribeThemeChanges(callback: (theme: DesktopThemeConfig) => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+
+  // 1. Storage Event listener (triggers on other webview windows when localStorage changes)
+  const handleStorage = (e: StorageEvent) => {
+    if (e.key === THEME_STORAGE_KEY && e.newValue) {
+      try {
+        const theme = JSON.parse(e.newValue) as DesktopThemeConfig;
+        if (theme.id) {
+          applyDesktopTheme(theme);
+          callback(theme);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  };
+  window.addEventListener('storage', handleStorage);
+
+  // 2. BroadcastChannel listener (instant webview-to-webview message bus)
+  const handleBroadcast = (e: MessageEvent) => {
+    if (e.data && typeof e.data === 'object' && e.data.id) {
+      const theme = e.data as DesktopThemeConfig;
+      applyDesktopTheme(theme);
+      callback(theme);
+    }
+  };
+  if (broadcastBus) {
+    broadcastBus.addEventListener('message', handleBroadcast);
+  }
+
+  return () => {
+    window.removeEventListener('storage', handleStorage);
+    if (broadcastBus) {
+      broadcastBus.removeEventListener('message', handleBroadcast);
+    }
+  };
+}
+

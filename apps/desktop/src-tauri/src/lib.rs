@@ -71,16 +71,28 @@ pub(crate) fn publish_interaction(app: &AppHandle, mode: InteractionMode) {
     }
 }
 
-/// The combination that opens the door.
+/// The combinations that open the door, in order of preference.
 ///
-/// `Ctrl+Shift+D`, and it has to be system-wide. Every in-page trigger — the
-/// button, the context menu, `Ctrl+E` — lives inside a window that in ambient
-/// mode is click-through and sits beneath Explorer's icon layer, so none of them
-/// can ever fire from the state they are meant to leave.
+/// One of these has to be system-wide. Every in-page trigger — the button, the
+/// context menu, `Ctrl+E` — lives inside a window that in ambient mode is
+/// click-through and sits beneath Explorer's icon layer, so none of them can
+/// fire from the state they are meant to leave. `Ctrl+E` stays the primary
+/// shortcut *inside* the desktop; this is only how the desktop is reached.
 ///
-/// Not `Ctrl+E`: an unmodified editor shortcut registered system-wide would be
-/// taken away from every other application on the machine.
-const EDIT_HOTKEY: Hotkey = Hotkey::ctrl_shift(b'D' as u16);
+/// Not `Ctrl+E` itself: registered system-wide it would be taken away from every
+/// other application on the machine.
+///
+/// **A list, not one.** `RegisterHotKey` refuses a combination another process
+/// already holds (`ERROR_HOTKEY_ALREADY_REGISTERED`, 1409), so a single
+/// hard-coded key means one collision leaves a desktop nobody can edit —
+/// observed, when a DevDesk from an earlier run was still holding it.
+const EDIT_HOTKEYS: [Hotkey; 3] = [
+    Hotkey::ctrl_shift(b'D' as u16),
+    Hotkey::ctrl_alt(b'D' as u16),
+    // `VK_OEM_3`, the backtick key. Rarely claimed, and reachable without
+    // looking down — which is what a fallback has to be.
+    Hotkey::ctrl_shift(0xC0),
+];
 
 /// The commands this crate answers rather than the generated contract.
 ///
@@ -210,11 +222,14 @@ fn start_desktop(
             // The only input path into a window that is click-through and behind
             // the shell. Without it nothing can enter edit mode at all, so a
             // failure here is reported loudly rather than noted in passing.
-            match desktop_host::watch_edit_hotkey(backend, app.handle().clone(), EDIT_HOTKEY) {
-                Ok(()) => eprintln!("devdesk: press {EDIT_HOTKEY} to edit the desktop"),
+            match desktop_host::watch_edit_hotkey(backend, app.handle().clone(), &EDIT_HOTKEYS) {
+                Ok(hotkey) => {
+                    eprintln!("devdesk: press {hotkey} to edit the desktop (then Ctrl+E or Escape)");
+                }
                 Err(error) => eprintln!(
-                    "devdesk: {EDIT_HOTKEY} could not be registered ({error}); the desktop \
-                     will not be editable — another application is holding that combination"
+                    "devdesk: no edit shortcut could be registered ({error}); the desktop \
+                     renders but cannot be edited — every candidate is held by another \
+                     application, which includes a DevDesk already running"
                 ),
             }
 

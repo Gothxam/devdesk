@@ -159,6 +159,20 @@ impl Hotkey {
             virtual_key,
         }
     }
+
+    /// `Ctrl` + `Alt` + the given key.
+    #[must_use]
+    pub const fn ctrl_alt(virtual_key: u16) -> Self {
+        Self {
+            modifiers: Modifiers {
+                control: true,
+                alt: true,
+                shift: false,
+                meta: false,
+            },
+            virtual_key,
+        }
+    }
 }
 
 impl core::fmt::Display for Hotkey {

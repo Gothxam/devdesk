@@ -30,8 +30,10 @@ import {
   applyDesktopTheme,
   loadActiveTheme,
   saveActiveTheme,
+  subscribeThemeChanges,
   type DesktopThemeConfig,
 } from './desktop-theme';
+
 import {
   layoutStorage,
   presetsFor,
@@ -65,10 +67,14 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
   const [isThemePickerOpen, setIsThemePickerOpen] = useState<boolean>(false);
   const [activeTheme, setActiveTheme] = useState<DesktopThemeConfig>(() => loadActiveTheme());
 
-  // Apply CSS Variables to :root on Theme change
+  // Apply CSS Variables to :root on Theme change & subscribe to multi-monitor sync bus
   useEffect(() => {
     applyDesktopTheme(activeTheme);
-  }, [activeTheme]);
+    const unsubscribe = subscribeThemeChanges((newTheme) => {
+      setActiveTheme(newTheme);
+    });
+    return unsubscribe;
+  }, []);
 
 
   /**
