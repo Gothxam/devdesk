@@ -1,136 +1,224 @@
 /**
- * Stage 6 — Desktop Interaction & Widget UX Styles
- * Pure CSS using local fonts, ThemeSnapshot custom properties, and AP-3 glass variables.
+ * Stage 6 — Desktop Visual Layer & Premium Aesthetic Design System
+ * Translucent liquid glass, ambient depth, rich typography, smooth spring motion.
  */
 
 :root {
-  --devdesk-font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --devdesk-font-mono: 'SF Mono', ui-monospace, Consolas, 'Cascadia Code', 'Liberation Mono', Menlo, monospace;
+  --devdesk-font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --devdesk-font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Consolas, 'Cascadia Code', monospace;
+
+  /* Glass Material Tokens */
+  --glass-bg-base: rgba(14, 17, 26, 0.76);
+  --glass-bg-hover: rgba(22, 27, 40, 0.88);
+  --glass-bg-edit: rgba(20, 24, 38, 0.92);
+  --glass-border-normal: rgba(255, 255, 255, 0.1);
+  --glass-border-hover: rgba(255, 255, 255, 0.22);
+  --glass-border-specular: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --glass-border-edit: rgba(129, 140, 248, 0.65);
+  --glass-border-locked: rgba(248, 113, 113, 0.6);
+
+  /* Shadows & Ambient Depth */
+  --shadow-normal: 0 24px 64px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  --shadow-hover: 0 32px 80px rgba(0, 0, 0, 0.72), 0 0 32px rgba(99, 102, 241, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  --shadow-edit: 0 0 28px rgba(99, 102, 241, 0.35), 0 32px 80px rgba(0, 0, 0, 0.75);
+
+  /* Brand Accents */
+  --accent-indigo: #6366f1;
+  --accent-indigo-light: #818cf8;
+  --accent-emerald: #10b981;
+  --accent-cyan: #06b6d4;
+  --accent-amber: #f59e0b;
 }
 
 /* Native OS Desktop Wallpaper Canvas */
 .devdesk-wallpaper {
   position: fixed;
   inset: 0;
-  background: radial-gradient(ellipse at 50% 30%, #16192b 0%, #0c0d15 60%, #040508 100%);
+  background: radial-gradient(ellipse at 50% 25%, #15182a 0%, #0c0d16 55%, #030407 100%);
   overflow: hidden;
   font-family: var(--devdesk-font-sans);
   pointer-events: none;
   user-select: none;
 }
 
-/* Subtle Wallpaper Mesh & Vignette */
+/* Wallpaper Mesh & Noise Vignette */
 .devdesk-wallpaper-grid {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
   background-size: 32px 32px;
-  opacity: 0.45;
+  opacity: 0.5;
 }
 
 .devdesk-wallpaper-vignette {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 50%, transparent 40%, rgba(0, 0, 0, 0.45) 100%);
+  background: radial-gradient(circle at 50% 50%, transparent 35%, rgba(0, 0, 0, 0.55) 100%);
   pointer-events: none;
 }
 
-/* Ambient Desktop Lighting Orbs */
+/* Ambient Lighting Orbs with Smooth Breathing Motion */
+@keyframes orb-float {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.85; }
+  50% { transform: translate(3vw, 2vh) scale(1.05); opacity: 1; }
+  100% { transform: translate(0, 0) scale(1); opacity: 0.85; }
+}
+
 .devdesk-orb-indigo {
   position: absolute;
-  top: -18%;
-  left: 20%;
-  width: 60vw;
-  height: 60vh;
+  top: -20%;
+  left: 18%;
+  width: 65vw;
+  height: 65vh;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.14) 0%, rgba(0, 0, 0, 0) 70%);
-  filter: blur(80px);
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.16) 0%, rgba(0, 0, 0, 0) 70%);
+  filter: blur(90px);
+  animation: orb-float 16s ease-in-out infinite;
 }
 
 .devdesk-orb-emerald {
   position: absolute;
-  bottom: -12%;
-  right: 15%;
-  width: 50vw;
-  height: 50vh;
+  bottom: -15%;
+  right: 12%;
+  width: 55vw;
+  height: 55vh;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.09) 0%, rgba(0, 0, 0, 0) 70%);
-  filter: blur(70px);
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.11) 0%, rgba(0, 0, 0, 0) 70%);
+  filter: blur(80px);
+  animation: orb-float 20s ease-in-out infinite reverse;
 }
 
 .devdesk-orb-violet {
   position: absolute;
-  top: 35%;
-  left: -8%;
-  width: 40vw;
-  height: 40vh;
+  top: 30%;
+  left: -10%;
+  width: 45vw;
+  height: 45vh;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(168, 85, 247, 0.07) 0%, rgba(0, 0, 0, 0) 70%);
-  filter: blur(65px);
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.09) 0%, rgba(0, 0, 0, 0) 70%);
+  filter: blur(75px);
+  animation: orb-float 14s ease-in-out infinite 2s;
 }
 
-/* Floating Desktop Surfaces */
+/* Floating Desktop Glass Surfaces */
 .devdesk-surface-card {
   position: absolute;
   border-radius: 24px;
   overflow: hidden;
   opacity: var(--surface-opacity, 1);
-  backdrop-filter: var(--surface-backdrop, blur(24px) saturate(180%));
-  -webkit-backdrop-filter: var(--surface-backdrop, blur(24px) saturate(180%));
-  background: var(--surface-tint, rgba(14, 17, 24, 0.82));
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: var(--surface-backdrop, blur(32px) saturate(200%));
+  -webkit-backdrop-filter: var(--surface-backdrop, blur(32px) saturate(200%));
+  background: var(--glass-bg-base);
+  border: 1px solid var(--glass-border-normal);
+  box-shadow: var(--shadow-normal);
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
-              border-color 0.25s ease,
-              box-shadow 0.25s ease,
-              outline 0.25s ease;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.22s ease,
+              box-shadow 0.22s ease,
+              background 0.22s ease;
 }
 
-/* Resize Corner Handle */
+.devdesk-surface-card:hover {
+  border-color: var(--glass-border-hover);
+  box-shadow: var(--shadow-hover);
+}
+
+.devdesk-surface-card.editing {
+  border-color: var(--glass-border-edit);
+  box-shadow: var(--shadow-edit);
+}
+
+/* Tactile Resize Handle (Bottom Right) */
 .devdesk-resize-handle {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 14px;
-  height: 14px;
+  right: 6px;
+  bottom: 6px;
+  width: 18px;
+  height: 18px;
   cursor: se-resize;
   z-index: 100;
-  border-right: 2px solid rgba(129, 140, 248, 0.8);
-  border-bottom: 2px solid rgba(129, 140, 248, 0.8);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 2px;
+}
+
+.devdesk-resize-handle::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--accent-indigo-light);
+  border-bottom: 2px solid var(--accent-indigo-light);
   border-bottom-right-radius: 4px;
+  transition: transform 0.15s ease, border-color 0.15s ease;
 }
 
-.devdesk-resize-handle:hover {
-  border-color: #6366f1;
+.devdesk-resize-handle:hover::after {
+  border-color: #ffffff;
+  transform: scale(1.2);
 }
 
-/* Context Menu Items */
+/* Context Menu Styling */
+.devdesk-glass-menu {
+  position: fixed;
+  z-index: 2000;
+  width: 220px;
+  border-radius: 16px;
+  padding: 6px;
+  background: rgba(15, 18, 28, 0.88);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  user-select: none;
+  animation: menu-appear 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes menu-appear {
+  0% { opacity: 0; transform: scale(0.95) translateY(-4px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
 .devdesk-menu-item {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
+  justify-content: space-between;
+  padding: 8px 12px;
   border: none;
+  border-radius: 10px;
   background: transparent;
   color: #e4e4e7;
   font-size: 12px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 
 .devdesk-menu-item:hover {
-  background: rgba(99, 102, 241, 0.25);
+  background: rgba(99, 102, 241, 0.28);
   color: #ffffff;
 }
 
-/* Live Tick Animation */
+.devdesk-menu-item.danger:hover {
+  background: rgba(239, 68, 68, 0.28);
+  color: #fca5a5;
+}
+
+.devdesk-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Live Tick Indicator */
 @keyframes pulse-glow {
   0% {
     transform: scale(1);
@@ -138,7 +226,7 @@
     box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
   }
   70% {
-    transform: scale(1.06);
+    transform: scale(1.08);
     opacity: 1;
     box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
   }
@@ -153,6 +241,6 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--accent-emerald);
   animation: pulse-glow 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
 }

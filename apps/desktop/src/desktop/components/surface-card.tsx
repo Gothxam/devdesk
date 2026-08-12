@@ -1,23 +1,22 @@
 /**
- * Stage 6 — Desktop Surface Card & Redesigned Widgets Component
+ * Stage 6 — Desktop Surface Card & Premium Redesigned Widgets
  *
- * Implements:
- * 1. Desktop Edit Mode UI chrome (bounds, resize handle, lock indicator).
- * 2. Redesigned Widget Views (Clock, Calendar, Session, System/Activity).
- * 3. Drag & Drop interaction hooks.
+ * Visual Layer Refinement:
+ * 1. Pristine translucent glass cards with specular top edge highlights.
+ * 2. High-precision typography (SF Mono / JetBrains Mono) for time & telemetry.
+ * 3. Tactile Edit Mode indicators, corner resize handles, and size preset badges.
  */
 
 import { parseWidgetInstanceId } from '@devdesk/contracts';
 import { glassStyle } from '@devdesk/effects';
 import {
   layerDepth,
-  type CompositionFrame,
   type CompositionSurface,
 } from '@devdesk/widget-engine';
 import type { CSSProperties } from 'react';
 
 import type { ClockView } from '../../widgets/clock/clock';
-import type { DesktopController, DesktopMetrics } from '../controller';
+import type { DesktopMetrics } from '../controller';
 import type { WidgetPlacementRecord } from '../layout-store';
 
 export interface SurfaceCardProps {
@@ -49,31 +48,34 @@ export function surfaceStyle(
     width: placement.width,
     height: placement.height,
     zIndex: layerDepth(surface.layer) * 100 + surface.ordinal,
-    borderRadius: 22,
+    borderRadius: 24,
     overflow: 'hidden',
     ...glass,
     opacity: Number(glass['--surface-opacity']),
-    backdropFilter: 'var(--surface-backdrop, blur(24px) saturate(180%))',
-    background: isOverlay ? 'rgba(14, 17, 24, 0.65)' : 'rgba(14, 17, 24, 0.82)',
+    backdropFilter: 'var(--surface-backdrop, blur(32px) saturate(210%))',
+    WebkitBackdropFilter: 'var(--surface-backdrop, blur(32px) saturate(210%))',
+    background: isOverlay ? 'rgba(14, 17, 26, 0.72)' : 'rgba(14, 17, 26, 0.84)',
     border: isEditMode
       ? placement.isLocked
-        ? '1px dashed rgba(239, 68, 68, 0.6)'
-        : '1px solid rgba(129, 140, 248, 0.6)'
+        ? '1px dashed rgba(239, 68, 68, 0.65)'
+        : '1px solid rgba(129, 140, 248, 0.75)'
       : isHit
-      ? '1px solid rgba(255, 255, 255, 0.5)'
-      : '1px solid rgba(255, 255, 255, 0.09)',
+      ? '1px solid rgba(255, 255, 255, 0.45)'
+      : '1px solid rgba(255, 255, 255, 0.1)',
     boxShadow: isEditMode
-      ? '0 0 24px rgba(99, 102, 241, 0.25), 0 24px 64px rgba(0, 0, 0, 0.5)'
+      ? '0 0 32px rgba(99, 102, 241, 0.3), 0 32px 80px rgba(0, 0, 0, 0.65)'
       : isHit
-      ? '0 0 40px rgba(255, 255, 255, 0.22), 0 32px 80px rgba(0, 0, 0, 0.7)'
-      : '0 24px 64px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
+      ? '0 0 44px rgba(255, 255, 255, 0.2), 0 36px 90px rgba(0, 0, 0, 0.75)'
+      : '0 24px 64px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.16)',
     pointerEvents: 'auto',
     cursor: isEditMode ? (placement.isLocked ? 'not-allowed' : 'grab') : 'pointer',
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    transition: isEditMode ? 'border-color 0.15s ease, box-shadow 0.15s ease' : 'transform 0.25s ease, border-color 0.25s ease',
+    transition: isEditMode
+      ? 'border-color 0.15s ease, box-shadow 0.15s ease'
+      : 'transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.22s ease, box-shadow 0.22s ease',
     userSelect: 'none',
   };
 }
@@ -84,15 +86,14 @@ function CalendarWidgetGrid(): React.JSX.Element {
   const today = new Date().getDate();
   const monthName = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
 
-  // Generate 31 days calendar grid
-  const gridCells = Array.from({ length: 31 }, (_, i) => i + 1);
+  const gridCells = Array.from({ length: 28 }, (_, i) => i + 1);
 
   return (
-    <div style={{ width: '100%', padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ width: '100%', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Month Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#f4f4f5', fontWeight: 700, fontSize: 13 }}>
-        <span>{monthName}</span>
-        <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 10, background: 'rgba(99, 102, 241, 0.2)', color: '#818cf8' }}>
+        <span style={{ letterSpacing: '-0.01em' }}>{monthName}</span>
+        <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, background: 'rgba(99, 102, 241, 0.25)', color: '#a5b4fc', fontWeight: 600, border: '1px solid rgba(129, 140, 248, 0.3)' }}>
           Today: {today}
         </span>
       </div>
@@ -105,19 +106,19 @@ function CalendarWidgetGrid(): React.JSX.Element {
       </div>
 
       {/* Days Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3, textAlign: 'center', fontSize: 11, fontWeight: 500, color: '#a1a1aa' }}>
-        {gridCells.slice(0, 28).map((day) => {
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, fontWeight: 500, color: '#a1a1aa' }}>
+        {gridCells.map((day) => {
           const isToday = day === today;
           return (
             <div
               key={`day-cell-${day}`}
               style={{
-                padding: '3px 0',
-                borderRadius: 6,
+                padding: '4px 0',
+                borderRadius: 8,
                 background: isToday ? '#6366f1' : 'transparent',
                 color: isToday ? '#ffffff' : '#a1a1aa',
                 fontWeight: isToday ? 700 : 500,
-                boxShadow: isToday ? '0 2px 8px rgba(99, 102, 241, 0.5)' : 'none',
+                boxShadow: isToday ? '0 4px 14px rgba(99, 102, 241, 0.6)' : 'none',
               }}
             >
               {day}
@@ -132,22 +133,22 @@ function CalendarWidgetGrid(): React.JSX.Element {
 /** Render Session Uptime Timer Widget */
 function SessionWidgetView(): React.JSX.Element {
   return (
-    <div style={{ width: '100%', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ width: '100%', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="devdesk-live-dot" />
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#f4f4f5' }}>Session Uptime</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#f4f4f5' }}>Session Uptime</span>
         </div>
-        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 8, background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontWeight: 600 }}>
+        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(16, 185, 129, 0.18)', color: '#34d399', fontWeight: 600, border: '1px solid rgba(52, 211, 153, 0.3)' }}>
           Active
         </span>
       </div>
 
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'SF Mono', monospace", color: '#38bdf8', letterSpacing: '-0.02em' }}>
+      <div style={{ fontSize: 32, fontWeight: 700, fontFamily: "var(--devdesk-font-mono)", color: '#38bdf8', letterSpacing: '-0.03em', textShadow: '0 4px 16px rgba(56, 189, 248, 0.3)' }}>
         00:45:12
       </div>
 
-      <div style={{ fontSize: 11, color: '#71717a', display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ fontSize: 11, color: '#71717a', display: 'flex', justifyContent: 'space-between', fontWeight: 500 }}>
         <span>Start: 15:30:00</span>
         <span>Cadence: 1.0s</span>
       </div>
@@ -167,7 +168,7 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
   return (
     <div
       style={surfaceStyle(surface, placement, isEditMode, isHit)}
-      className={`devdesk-surface-card ${isHit ? 'hit' : ''}`}
+      className={`devdesk-surface-card ${isHit ? 'hit' : ''} ${isEditMode ? 'editing' : ''}`}
       onPointerDown={(e) => {
         if (isEditMode && !placement.isLocked) {
           onDragStart(placement.instanceId, e);
@@ -184,21 +185,23 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
         <div
           style={{
             position: 'absolute',
-            top: 8,
-            left: 12,
-            right: 12,
+            top: 10,
+            left: 14,
+            right: 14,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             zIndex: 10,
             fontSize: 10,
             fontWeight: 600,
-            color: placement.isLocked ? '#fca5a5' : '#818cf8',
+            color: placement.isLocked ? '#fca5a5' : '#a5b4fc',
             pointerEvents: 'none',
           }}
         >
-          <span>{placement.isLocked ? '🔒 Locked' : '⋮⋮ Drag'}</span>
-          <span>{placement.sizePreset}</span>
+          <span>{placement.isLocked ? '🔒 Locked' : '⋮⋮ Drag Widget'}</span>
+          <span style={{ padding: '2px 6px', borderRadius: 8, background: 'rgba(99, 102, 241, 0.2)', border: '1px solid rgba(129, 140, 248, 0.3)' }}>
+            {placement.sizePreset}
+          </span>
         </div>
       )}
 
@@ -219,13 +222,13 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
         >
           <div
             style={{
-              fontSize: placement.sizePreset === 'large' ? 60 : placement.sizePreset === 'small' ? 36 : 48,
+              fontSize: placement.sizePreset === 'large' ? 64 : placement.sizePreset === 'small' ? 38 : 52,
               fontWeight: 700,
               lineHeight: 1.0,
               color: view.accent,
-              fontFamily: "'SF Mono', ui-monospace, Consolas, monospace",
-              letterSpacing: '-0.03em',
-              textShadow: '0 4px 28px rgba(0, 0, 0, 0.55)',
+              fontFamily: "var(--devdesk-font-mono)",
+              letterSpacing: '-0.04em',
+              textShadow: '0 4px 32px rgba(0, 0, 0, 0.6)',
             }}
           >
             {view.time}
@@ -237,13 +240,13 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
               alignItems: 'center',
               gap: 8,
               fontSize: 12,
-              fontWeight: 500,
-              padding: '4px 14px',
-              borderRadius: 16,
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.09)',
+              fontWeight: 600,
+              padding: '4px 16px',
+              borderRadius: 18,
+              background: 'rgba(255, 255, 255, 0.06)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
               color: view.foreground,
-              backdropFilter: 'blur(10px)',
+              backdropFilter: 'blur(12px)',
             }}
           >
             <span className="devdesk-live-dot" />
@@ -262,12 +265,12 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
           style={{
             flex: 1,
             width: '100%',
-            padding: '16px 20px',
+            padding: '18px 22px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
             alignItems: 'center',
-            gap: 6,
+            gap: 8,
             textAlign: 'center',
           }}
         >
@@ -276,17 +279,17 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
               fontSize: 11,
               fontWeight: 600,
               textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              padding: '3px 10px',
-              borderRadius: 12,
-              background: surface.layer === 'overlay' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.08)',
-              color: surface.layer === 'overlay' ? '#fca5a5' : '#a1a1aa',
-              border: '1px solid rgba(255, 255, 255, 0.09)',
+              letterSpacing: '0.08em',
+              padding: '4px 12px',
+              borderRadius: 14,
+              background: surface.layer === 'overlay' ? 'rgba(239, 68, 68, 0.22)' : 'rgba(255, 255, 255, 0.08)',
+              color: surface.layer === 'overlay' ? '#fca5a5' : '#e4e4e7',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
             }}
           >
             {instanceKey}
           </div>
-          <div style={{ fontSize: 11, color: '#a1a1aa', fontFamily: "'SF Mono', monospace" }}>
+          <div style={{ fontSize: 11, color: '#a1a1aa', fontFamily: "var(--devdesk-font-mono)" }}>
             Seq #{sequence} · {metrics?.wakeups ?? 0} wakeups
           </div>
         </div>
