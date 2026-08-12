@@ -24,8 +24,21 @@ import type { DesktopController } from './controller';
 import { ContextMenu, type ContextMenuState } from './components/context-menu';
 import { EditOverlay, type SnapGuide } from './components/edit-overlay';
 import { SurfaceCard } from './components/surface-card';
+import { ThemePicker } from './components/theme-picker';
 import { Wallpaper } from './components/wallpaper';
-import { layoutStorage, type WidgetPlacementRecord } from './layout-store';
+import {
+  applyDesktopTheme,
+  loadActiveTheme,
+  saveActiveTheme,
+  type DesktopThemeConfig,
+} from './desktop-theme';
+import {
+  layoutStorage,
+  presetsFor,
+  sizeOf,
+  type SizePreset,
+  type WidgetPlacementRecord,
+} from './layout-store';
 
 export interface HitReadout {
   readonly surfaceId: string | undefined;
@@ -48,13 +61,40 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [snapGuides, setSnapGuides] = useState<readonly SnapGuide[]>([]);
 
-  // Placements cache synced with LayoutStorage adapter
-  const [placements, setPlacements] = useState<Map<string, WidgetPlacementRecord>>(() => {
-    return layoutStorage.loadPlacements({
-      width: typeof window !== 'undefined' ? window.innerWidth : 1920,
-      height: typeof window !== 'undefined' ? window.innerHeight : 1080,
-    });
-  });
+  // Customizable Theme Engine State
+  const [isThemePickerOpen, setIsThemePickerOpen] = useState<boolean>(false);
+  const [activeTheme, setActiveTheme] = useState<DesktopThemeConfig>(() => loadActiveTheme());
+
+  // Apply CSS Variables to :root on Theme change
+  useEffect(() => {
+    applyDesktopTheme(activeTheme);
+  }, [activeTheme]);
+
+
+  /**
+    * Which display's layout this window owns.
+    *
+    * Every host window is a separate webview at the **same origin**, so they
+    * share one `localStorage`. Without a scope a single key means "whichever
+    * monitor saved last": dragging on one screen rewrote the other screen's
+    * layout, and the loser adopted coordinates computed for a different size.
+    */
+  const scope = props.controller.display.monitorId;
+
+  const workArea = useCallback(
+    () => ({
+      width: typeof window === 'undefined' ? 1920 : window.innerWidth,
+      height: typeof window === 'undefined' ? 1080 : window.innerHeight,
+    }),
+    [],
+  );
+
+  const [placements, setPlacements] = useState<Map<string, WidgetPlacementRecord>>(() =>
+    layoutStorage.loadPlacements(scope, {
+      width: typeof window === 'undefined' ? 1920 : window.innerWidth,
+      height: typeof window === 'undefined' ? 1080 : window.innerHeight,
+    }),
+  );
 
   /**
    * Adopt the host's mode; never assert our own over it.
@@ -126,17 +166,37 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
     origHeight: number;
   } | null>(null);
 
-  // Toggle Edit Mode via Ctrl+E
+  /**
+   * `Ctrl+E` toggles, `Escape` leaves.
+   *
+   * `Ctrl+E` is the primary shortcut and the one the UI advertises. It reaches
+   * the page only while the page has focus, which in desktop mode means only
+   * while already editing — so it is how you *leave*, and the system-wide key
+   * the host registers is how you get in. Both end at the same command.
+   *
+   * `Escape` as well as `Ctrl+E`, because edit mode puts a full-screen window in
+   * front of everything and the key people press to get out of that is Escape.
+   */
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
-        e.preventDefault();
-        setIsEditMode((prev) => {
-          void invokeDesktopSetEditMode(!prev);
-          return !prev;
-        });
-      }
+    const onKeyDown = (event: KeyboardEvent) => {
+      const toggle = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'e';
+      const leave = event.key === 'Escape';
+
+      if (!toggle && !leave) return;
+
+      event.preventDefault();
+
+      setIsEditMode((previous) => {
+        const next = leave ? false : !previous;
+
+        // Escape while not editing is somebody dismissing something else.
+        if (next === previous) return previous;
+
+        void invokeDesktopSetEditMode(next);
+        return next;
+      });
     };
+
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
@@ -157,10 +217,10 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
       };
       const updated = updater(existing);
       next.set(instanceId, updated);
-      layoutStorage.savePlacements(next);
+      layoutStorage.savePlacements(scope, next);
       return next;
     });
-  }, []);
+  }, [scope]);
 
   // Drag Start
   const onDragStart = useCallback((instanceId: string, e: React.PointerEvent) => {
@@ -304,7 +364,19 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
         snapGuides={snapGuides}
         workArea={{ width: window.innerWidth, height: window.innerHeight }}
         onToggleEditMode={() => requestEditMode(!isEditMode)}
+        onOpenThemePicker={() => setIsThemePickerOpen(true)}
       />
+
+      <ThemePicker
+        isOpen={isThemePickerOpen}
+        activeTheme={activeTheme}
+        onClose={() => setIsThemePickerOpen(false)}
+        onApplyTheme={(theme) => {
+          setActiveTheme(theme);
+          saveActiveTheme(theme);
+        }}
+      />
+
 
       {/* Render Surfaces from Composition Scene (Source of Truth) */}
       {props.frame?.visible.map((surface) => {
@@ -344,17 +416,17 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
       <ContextMenu
         state={contextMenu}
         isEditMode={isEditMode}
+        presets={contextMenu?.instanceId ? presetsFor(contextMenu.instanceId) : []}
+        currentPreset={
+          contextMenu?.instanceId ? placements.get(contextMenu.instanceId)?.sizePreset : undefined
+        }
         isLocked={contextMenu?.instanceId ? placements.get(contextMenu.instanceId)?.isLocked : false}
         onClose={() => setContextMenu(null)}
         onToggleEditMode={() => requestEditMode(!isEditMode)}
         onResizeWidget={(id, preset) => {
-          const presetMap: Record<string, { width: number; height: number }> = {
-            small: { width: 180, height: 120 },
-            medium: { width: 300, height: 180 },
-            large: { width: 380, height: 240 },
-          };
-          const dim = presetMap[preset] ?? { width: 300, height: 180 };
-          updatePlacement(id, (prev) => ({ ...prev, sizePreset: preset as any, ...dim }));
+          // One table for the size a preset means, so a size chosen from the
+          // menu and a size restored from storage cannot drift apart.
+          updatePlacement(id, (prev) => ({ ...prev, sizePreset: preset, ...sizeOf(preset) }));
         }}
         onToggleLock={(id) => {
           updatePlacement(id, (prev) => ({ ...prev, isLocked: !prev.isLocked }));
@@ -363,16 +435,12 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
           setPlacements((prev) => {
             const next = new Map(prev);
             next.delete(id);
-            layoutStorage.savePlacements(next);
+            layoutStorage.savePlacements(scope, next);
             return next;
           });
         }}
         onResetLayout={() => {
-          const defaults = layoutStorage.resetPlacements({
-            width: window.innerWidth,
-            height: window.innerHeight,
-          });
-          setPlacements(defaults);
+          setPlacements(layoutStorage.resetPlacements(scope, workArea()));
         }}
       />
     </div>

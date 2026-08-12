@@ -1,7 +1,16 @@
 /**
- * Stage 6 — Custom Glass Context Menu Component
- * Triggered on right-click on widgets or desktop canvas.
+ * The menu that replaces the Windows desktop menu.
+ *
+ * In edit mode a host window is in the overlay band and opaque to input, so a
+ * right-click lands here and Explorer never sees it — the shell menu is not
+ * suppressed so much as never reached. Out of edit mode the desktop is
+ * click-through by design (`DH-16`), and the right-click belongs to Explorer.
+ *
+ * The page's own default menu is suppressed by `preventDefault` at the canvas,
+ * which is what stops WebView2 offering its browser menu on top of this one.
  */
+
+import type { SizePreset } from '../layout-store';
 
 export interface ContextMenuState {
   readonly x: number;
@@ -13,9 +22,19 @@ export interface ContextMenuProps {
   readonly state: ContextMenuState | null;
   readonly isEditMode: boolean;
   readonly isLocked?: boolean | undefined;
+  /**
+   * The sizes this widget offers, in the order to show them.
+   *
+   * Passed in rather than hard-coded, because a calendar's sizes are not a
+   * clock's. A menu offering "Large" to a widget that has no large is a menu
+   * that lies about what it will do.
+   */
+  readonly presets: readonly SizePreset[];
+  /** Which preset the widget is currently at, so the menu can tick it. */
+  readonly currentPreset?: SizePreset | undefined;
   readonly onClose: () => void;
   readonly onToggleEditMode: () => void;
-  readonly onResizeWidget: (instanceId: string, sizePreset: string) => void;
+  readonly onResizeWidget: (instanceId: string, sizePreset: SizePreset) => void;
   readonly onToggleLock: (instanceId: string) => void;
   readonly onRemoveWidget: (instanceId: string) => void;
   readonly onResetLayout: () => void;
@@ -82,38 +101,28 @@ export function ContextMenu(props: ContextMenuProps): React.JSX.Element | null {
 
           {/* Resize Presets */}
           <div style={{ padding: '4px 14px', fontSize: 11, fontWeight: 600, color: '#71717a' }}>
-            Resize
+            Size
           </div>
-          <button
-            type="button"
-            className="devdesk-menu-item"
-            onClick={() => {
-              props.onResizeWidget(instanceId, 'small');
-              props.onClose();
-            }}
-          >
-            <span>Small</span>
-          </button>
-          <button
-            type="button"
-            className="devdesk-menu-item"
-            onClick={() => {
-              props.onResizeWidget(instanceId, 'medium');
-              props.onClose();
-            }}
-          >
-            <span>Medium / Month</span>
-          </button>
-          <button
-            type="button"
-            className="devdesk-menu-item"
-            onClick={() => {
-              props.onResizeWidget(instanceId, 'large');
-              props.onClose();
-            }}
-          >
-            <span>Large / Expanded</span>
-          </button>
+          {props.presets.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              className="devdesk-menu-item"
+              disabled={props.isLocked}
+              onClick={() => {
+                props.onResizeWidget(instanceId, preset);
+                props.onClose();
+              }}
+              style={{
+                textTransform: 'capitalize',
+                opacity: props.isLocked ? 0.4 : 1,
+                cursor: props.isLocked ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <span>{preset}</span>
+              {preset === props.currentPreset && <span style={{ marginLeft: 'auto' }}>✓</span>}
+            </button>
+          ))}
 
           <div style={{ height: 1, background: 'rgba(255, 255, 255, 0.08)', margin: '4px 0' }} />
 
@@ -126,7 +135,7 @@ export function ContextMenu(props: ContextMenuProps): React.JSX.Element | null {
               props.onClose();
             }}
           >
-            <span>{props.isLocked ? '🔓 Unlock Position' : '📌 Lock Position'}</span>
+            <span>{props.isLocked ? '🔓 Unlock' : '📌 Lock Position and Size'}</span>
           </button>
           <button
             type="button"

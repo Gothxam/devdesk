@@ -1,7 +1,5 @@
 /**
- * Stage 6 — Desktop Edit Mode Overlay & Snap Alignment Guides
- * Renders 8px spacing grid, active banner, magnetic alignment guides,
- * and Win32 Interactivity Diagnostic Overlay (Requirement #8).
+ * Stage 6 — Desktop Overlay, Spacing Grid, Snap Guides & Theme Picker Trigger
  */
 
 export interface SnapGuide {
@@ -14,6 +12,7 @@ export interface EditOverlayProps {
   readonly snapGuides: readonly SnapGuide[];
   readonly workArea: { readonly width: number; readonly height: number };
   readonly onToggleEditMode: () => void;
+  readonly onOpenThemePicker?: (() => void) | undefined;
 }
 
 export function EditOverlay(props: EditOverlayProps): React.JSX.Element {
@@ -40,42 +39,7 @@ export function EditOverlay(props: EditOverlayProps): React.JSX.Element {
         />
       )}
 
-      {/* Requirement 8: Desktop Interactivity Diagnostic Overlay */}
-      {props.isEditMode && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 16,
-            left: 24,
-            zIndex: 1000,
-            padding: '10px 16px',
-            borderRadius: 14,
-            background: 'rgba(15, 23, 42, 0.88)',
-            border: '1px solid rgba(129, 140, 248, 0.4)',
-            backdropFilter: 'blur(16px)',
-            WebkitBackdropFilter: 'blur(16px)',
-            color: '#f4f4f5',
-            fontFamily: "'SF Mono', ui-monospace, Consolas, monospace",
-            fontSize: 11,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
-            pointerEvents: 'auto',
-          }}
-        >
-          <div style={{ fontWeight: 700, color: '#818cf8', marginBottom: 2 }}>
-            🛠️ WIN32 DESKTOP INTERACTIVITY DIAGNOSTICS
-          </div>
-          <div>HWND: <span style={{ color: '#38bdf8' }}>Native Host HWND (WorkerW Bridge)</span></div>
-          <div>Extended Style: <span style={{ color: '#34d399' }}>GWL_EXSTYLE (WS_EX_TRANSPARENT: OFF)</span></div>
-          <div>Click-Through State: <span style={{ color: '#f43f5e' }}>DISABLED (INTERACTIVE)</span></div>
-          <div>Pointer Event State: <span style={{ color: '#a78bfa' }}>CAPTURED / READY</span></div>
-          <div>Hit-Test Target: <span style={{ color: '#fbbf24' }}>DevDesk Host HWND (WindowFromPoint MATCH)</span></div>
-        </div>
-      )}
-
-      {/* Top Floating Hot Button / Status Pill */}
+      {/* Top Floating Hot Buttons / Controls Bar */}
       <div
         style={{
           position: 'absolute',
@@ -83,8 +47,37 @@ export function EditOverlay(props: EditOverlayProps): React.JSX.Element {
           right: 24,
           zIndex: 1000,
           pointerEvents: 'auto',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
         }}
       >
+        {props.onOpenThemePicker && (
+          <button
+            type="button"
+            onClick={props.onOpenThemePicker}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '7px 14px',
+              borderRadius: 20,
+              border: '1px solid rgba(255, 255, 255, 0.14)',
+              background: 'rgba(18, 20, 28, 0.78)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              color: '#ffffff',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <span>🎨 Themes</span>
+          </button>
+        )}
+
         <button
           type="button"
           onClick={props.onToggleEditMode}
