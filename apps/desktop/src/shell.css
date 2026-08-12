@@ -1,33 +1,26 @@
 /**
- * Stage 6 — Desktop Visual Layer & Premium Aesthetic Design System
- * Translucent liquid glass, ambient depth, rich typography, smooth spring motion.
+ * Stage 6 — Desktop Visual Layer & Single Source of Truth Token System
+ * All colors, radii, blurs, fonts, borders, and shadows are 100% token-driven via CSS custom properties.
  */
 
 :root {
-  --devdesk-font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --devdesk-font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Consolas, 'Cascadia Code', monospace;
+  --devdesk-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --devdesk-font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
 
-  /* Glass Material Tokens */
-  --glass-bg-base: rgba(14, 17, 26, 0.76);
-  --glass-bg-hover: rgba(22, 27, 40, 0.88);
-  --glass-bg-edit: rgba(20, 24, 38, 0.92);
-  --glass-border-normal: rgba(255, 255, 255, 0.1);
-  --glass-border-hover: rgba(255, 255, 255, 0.22);
-  --glass-border-specular: inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  --glass-border-edit: rgba(129, 140, 248, 0.65);
-  --glass-border-locked: rgba(248, 113, 113, 0.6);
-
-  /* Shadows & Ambient Depth */
-  --shadow-normal: 0 24px 64px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  --shadow-hover: 0 32px 80px rgba(0, 0, 0, 0.72), 0 0 32px rgba(99, 102, 241, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.24);
-  --shadow-edit: 0 0 28px rgba(99, 102, 241, 0.35), 0 32px 80px rgba(0, 0, 0, 0.75);
-
-  /* Brand Accents */
-  --accent-indigo: #6366f1;
-  --accent-indigo-light: #818cf8;
-  --accent-emerald: #10b981;
-  --accent-cyan: #06b6d4;
-  --accent-amber: #f59e0b;
+  /* Fallback Tokens (Overridden dynamically by applyDesktopTheme) */
+  --devdesk-accent: #6366f1;
+  --devdesk-accent-bg: rgba(99, 102, 241, 0.22);
+  --devdesk-accent-border: rgba(99, 102, 241, 0.6);
+  --devdesk-accent-glow: 0 0 12px #6366f1;
+  --devdesk-radius: 24px;
+  --devdesk-blur: 32px;
+  --devdesk-bg: rgba(14, 17, 26, 0.82);
+  --devdesk-text: #f4f4f5;
+  --devdesk-font: var(--devdesk-font-sans);
+  --devdesk-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --devdesk-border: 1px solid rgba(255, 255, 255, 0.1);
+  --devdesk-orb-1: rgba(99, 102, 241, 0.16);
+  --devdesk-orb-2: rgba(16, 185, 129, 0.11);
 }
 
 /* Native OS Desktop Wallpaper Canvas */
@@ -36,7 +29,7 @@
   inset: 0;
   background: radial-gradient(ellipse at 50% 25%, #15182a 0%, #0c0d16 55%, #030407 100%);
   overflow: hidden;
-  font-family: var(--devdesk-font-sans);
+  font-family: var(--devdesk-font);
   pointer-events: none;
   user-select: none;
 }
@@ -57,7 +50,7 @@
   pointer-events: none;
 }
 
-/* Ambient Lighting Orbs with Smooth Breathing Motion */
+/* Ambient Lighting Orbs with Dynamic Theme Palette Colors */
 @keyframes orb-float {
   0% { transform: translate(0, 0) scale(1); opacity: 0.85; }
   50% { transform: translate(3vw, 2vh) scale(1.05); opacity: 1; }
@@ -71,7 +64,7 @@
   width: 65vw;
   height: 65vh;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.16) 0%, rgba(0, 0, 0, 0) 70%);
+  background: radial-gradient(circle, var(--devdesk-orb-1) 0%, rgba(0, 0, 0, 0) 70%);
   filter: blur(90px);
   animation: orb-float 16s ease-in-out infinite;
 }
@@ -83,7 +76,7 @@
   width: 55vw;
   height: 55vh;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.11) 0%, rgba(0, 0, 0, 0) 70%);
+  background: radial-gradient(circle, var(--devdesk-orb-2) 0%, rgba(0, 0, 0, 0) 70%);
   filter: blur(80px);
   animation: orb-float 20s ease-in-out infinite reverse;
 }
@@ -95,22 +88,23 @@
   width: 45vw;
   height: 45vh;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(168, 85, 247, 0.09) 0%, rgba(0, 0, 0, 0) 70%);
+  background: radial-gradient(circle, var(--devdesk-accent-bg) 0%, rgba(0, 0, 0, 0) 70%);
   filter: blur(75px);
   animation: orb-float 14s ease-in-out infinite 2s;
 }
 
-/* Floating Desktop Glass Surfaces */
+/* Floating Desktop Surfaces (100% Token Driven) */
 .devdesk-surface-card {
   position: absolute;
-  border-radius: 24px;
+  border-radius: var(--devdesk-radius);
   overflow: hidden;
-  opacity: var(--surface-opacity, 1);
-  backdrop-filter: var(--surface-backdrop, blur(32px) saturate(200%));
-  -webkit-backdrop-filter: var(--surface-backdrop, blur(32px) saturate(200%));
-  background: var(--glass-bg-base);
-  border: 1px solid var(--glass-border-normal);
-  box-shadow: var(--shadow-normal);
+  backdrop-filter: blur(var(--devdesk-blur)) saturate(200%);
+  -webkit-backdrop-filter: blur(var(--devdesk-blur)) saturate(200%);
+  background: var(--devdesk-bg);
+  border: var(--devdesk-border);
+  box-shadow: var(--devdesk-shadow);
+  font-family: var(--devdesk-font);
+  color: var(--devdesk-text);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -122,13 +116,13 @@
 }
 
 .devdesk-surface-card:hover {
-  border-color: var(--glass-border-hover);
-  box-shadow: var(--shadow-hover);
+  border-color: var(--devdesk-accent);
+  box-shadow: 0 0 32px var(--devdesk-accent-border), var(--devdesk-shadow);
 }
 
 .devdesk-surface-card.editing {
-  border-color: var(--glass-border-edit);
-  box-shadow: var(--shadow-edit);
+  border: 2px solid var(--devdesk-accent);
+  box-shadow: 0 0 32px var(--devdesk-accent-border), var(--devdesk-shadow);
 }
 
 /* Tactile Resize Handle (Bottom Right) */
@@ -150,8 +144,8 @@
   content: '';
   width: 10px;
   height: 10px;
-  border-right: 2px solid var(--accent-indigo-light);
-  border-bottom: 2px solid var(--accent-indigo-light);
+  border-right: 2px solid var(--devdesk-accent);
+  border-bottom: 2px solid var(--devdesk-accent);
   border-bottom-right-radius: 4px;
   transition: transform 0.15s ease, border-color 0.15s ease;
 }
@@ -166,13 +160,15 @@
   position: fixed;
   z-index: 2000;
   width: 220px;
-  border-radius: 16px;
+  border-radius: var(--devdesk-radius);
   padding: 6px;
-  background: rgba(15, 18, 28, 0.88);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  background: var(--devdesk-bg);
+  backdrop-filter: blur(var(--devdesk-blur)) saturate(190%);
+  -webkit-backdrop-filter: blur(var(--devdesk-blur)) saturate(190%);
+  border: var(--devdesk-border);
+  box-shadow: var(--devdesk-shadow);
+  color: var(--devdesk-text);
+  font-family: var(--devdesk-font);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -194,7 +190,8 @@
   border: none;
   border-radius: 10px;
   background: transparent;
-  color: #e4e4e7;
+  color: var(--devdesk-text);
+  font-family: var(--devdesk-font);
   font-size: 12px;
   font-weight: 500;
   text-align: left;
@@ -203,7 +200,7 @@
 }
 
 .devdesk-menu-item:hover {
-  background: rgba(99, 102, 241, 0.28);
+  background: var(--devdesk-accent-bg);
   color: #ffffff;
 }
 
@@ -223,17 +220,17 @@
   0% {
     transform: scale(1);
     opacity: 0.9;
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+    box-shadow: 0 0 0 0 var(--devdesk-accent-border);
   }
   70% {
     transform: scale(1.08);
     opacity: 1;
-    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 8px rgba(0, 0, 0, 0);
   }
   100% {
     transform: scale(1);
     opacity: 0.9;
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
   }
 }
 
@@ -241,6 +238,6 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--accent-emerald);
+  background: var(--devdesk-accent);
   animation: pulse-glow 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
 }

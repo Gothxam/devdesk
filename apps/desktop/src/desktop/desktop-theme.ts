@@ -133,6 +133,18 @@ export const PRESET_THEMES: readonly DesktopThemeConfig[] = [
 
 const THEME_STORAGE_KEY = 'devdesk_active_theme_v1';
 
+/** Helper to convert hex color to rgba */
+function hexToRgba(hex: string, alpha: number): string {
+  const c = hex.replace('#', '');
+  if (c.length === 6) {
+    const r = parseInt(c.substring(0, 2), 16);
+    const g = parseInt(c.substring(2, 4), 16);
+    const b = parseInt(c.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return hex;
+}
+
 /** Applies CSS variables to document root based on theme config */
 export function applyDesktopTheme(config: DesktopThemeConfig): void {
   if (typeof document === 'undefined') return;
@@ -149,18 +161,28 @@ export function applyDesktopTheme(config: DesktopThemeConfig): void {
 
   // Shadow preset resolution
   let shadowCss = '0 24px 64px rgba(0, 0, 0, 0.55)';
+  if (config.shadowPreset === 'none') shadowCss = 'none';
   if (config.shadowPreset === 'soft') shadowCss = '0 12px 32px rgba(0, 0, 0, 0.35)';
   if (config.shadowPreset === 'deep') shadowCss = '0 32px 80px rgba(0, 0, 0, 0.75)';
   if (config.shadowPreset === 'glowing')
-    shadowCss = `0 0 32px ${config.accentColor}55, 0 24px 64px rgba(0, 0, 0, 0.7)`;
+    shadowCss = `0 0 32px ${hexToRgba(config.accentColor, 0.45)}, 0 24px 64px rgba(0, 0, 0, 0.7)`;
 
   // Material border resolution
   let borderCss = '1px solid rgba(255, 255, 255, 0.1)';
-  if (config.materialStyle === 'neon') borderCss = `1px solid ${config.accentColor}`;
+  if (config.materialStyle === 'neon') borderCss = `2px solid ${config.accentColor}`;
   if (config.materialStyle === 'paper') borderCss = '1px solid rgba(255, 255, 255, 0.18)';
   if (config.materialStyle === 'transparent') borderCss = '1px solid rgba(255, 255, 255, 0.25)';
+  if (config.materialStyle === 'matte') borderCss = '1px solid rgba(255, 255, 255, 0.08)';
+
+  // Accent derived variants
+  const accentBg = hexToRgba(config.accentColor, 0.22);
+  const accentBorder = hexToRgba(config.accentColor, 0.6);
+  const accentGlow = `0 0 12px ${config.accentColor}`;
 
   root.style.setProperty('--devdesk-accent', config.accentColor);
+  root.style.setProperty('--devdesk-accent-bg', accentBg);
+  root.style.setProperty('--devdesk-accent-border', accentBorder);
+  root.style.setProperty('--devdesk-accent-glow', accentGlow);
   root.style.setProperty('--devdesk-radius', `${config.borderRadius}px`);
   root.style.setProperty('--devdesk-blur', `${config.blurIntensity}px`);
   root.style.setProperty('--devdesk-bg', config.backgroundColor);
@@ -186,7 +208,6 @@ export function loadActiveTheme(): DesktopThemeConfig {
     return DEFAULT_THEME;
   }
 }
-
 
 /** Saves active theme to localStorage */
 export function saveActiveTheme(config: DesktopThemeConfig): void {
