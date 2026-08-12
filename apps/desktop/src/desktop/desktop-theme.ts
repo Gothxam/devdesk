@@ -8,6 +8,7 @@
 export type MaterialStyle = 'glass' | 'acrylic' | 'matte' | 'paper' | 'transparent' | 'neon';
 export type FontStyle = 'sans' | 'mono' | 'display';
 export type ShadowPreset = 'none' | 'soft' | 'deep' | 'glowing';
+export type MotionProfile = 'smooth' | 'bouncy' | 'none';
 
 export interface DesktopThemeConfig {
   readonly id: string;
@@ -21,6 +22,7 @@ export interface DesktopThemeConfig {
   readonly blurIntensity: number; // in px, e.g. 32
   readonly surfaceOpacity: number; // 0.0 to 1.0
   readonly shadowPreset: ShadowPreset;
+  readonly motionProfile?: MotionProfile;
   readonly orbColors: {
     readonly primary: string;
     readonly secondary: string;
@@ -40,6 +42,7 @@ export const PRESET_THEMES: readonly DesktopThemeConfig[] = [
     blurIntensity: 32,
     surfaceOpacity: 0.82,
     shadowPreset: 'deep',
+    motionProfile: 'smooth',
     orbColors: {
       primary: 'rgba(99, 102, 241, 0.16)',
       secondary: 'rgba(16, 185, 129, 0.11)',
@@ -57,6 +60,7 @@ export const PRESET_THEMES: readonly DesktopThemeConfig[] = [
     blurIntensity: 40,
     surfaceOpacity: 0.72,
     shadowPreset: 'soft',
+    motionProfile: 'bouncy',
     orbColors: {
       primary: 'rgba(56, 189, 248, 0.2)',
       secondary: 'rgba(99, 102, 241, 0.15)',
@@ -74,6 +78,7 @@ export const PRESET_THEMES: readonly DesktopThemeConfig[] = [
     blurIntensity: 16,
     surfaceOpacity: 0.92,
     shadowPreset: 'glowing',
+    motionProfile: 'smooth',
     orbColors: {
       primary: 'rgba(236, 72, 153, 0.22)',
       secondary: 'rgba(6, 182, 212, 0.22)',
@@ -91,6 +96,7 @@ export const PRESET_THEMES: readonly DesktopThemeConfig[] = [
     blurIntensity: 0,
     surfaceOpacity: 0.96,
     shadowPreset: 'soft',
+    motionProfile: 'none',
     orbColors: {
       primary: 'rgba(16, 185, 129, 0.12)',
       secondary: 'rgba(59, 130, 246, 0.1)',
@@ -108,6 +114,7 @@ export const PRESET_THEMES: readonly DesktopThemeConfig[] = [
     blurIntensity: 4,
     surfaceOpacity: 0.95,
     shadowPreset: 'soft',
+    motionProfile: 'smooth',
     orbColors: {
       primary: 'rgba(245, 158, 11, 0.14)',
       secondary: 'rgba(239, 68, 68, 0.1)',
@@ -125,6 +132,7 @@ export const PRESET_THEMES: readonly DesktopThemeConfig[] = [
     blurIntensity: 36,
     surfaceOpacity: 0.85,
     shadowPreset: 'glowing',
+    motionProfile: 'bouncy',
     orbColors: {
       primary: 'rgba(168, 85, 247, 0.22)',
       secondary: 'rgba(236, 72, 153, 0.18)',
@@ -188,6 +196,16 @@ export function applyDesktopTheme(config: DesktopThemeConfig): void {
   const accentBorder = hexToRgba(config.accentColor, 0.6);
   const accentGlow = `0 0 12px ${config.accentColor}`;
 
+  // Motion Profile Token Mapping
+  const motionProfile = config.motionProfile ?? 'smooth';
+  const motionDuration = motionProfile === 'none' ? '0.01s' : motionProfile === 'bouncy' ? '0.35s' : '0.22s';
+  const motionEase =
+    motionProfile === 'none'
+      ? 'linear'
+      : motionProfile === 'bouncy'
+      ? 'cubic-bezier(0.34, 1.56, 0.64, 1)'
+      : 'cubic-bezier(0.16, 1, 0.3, 1)';
+
   root.style.setProperty('--devdesk-accent', config.accentColor);
   root.style.setProperty('--devdesk-accent-bg', accentBg);
   root.style.setProperty('--devdesk-accent-border', accentBorder);
@@ -201,6 +219,8 @@ export function applyDesktopTheme(config: DesktopThemeConfig): void {
   root.style.setProperty('--devdesk-border', borderCss);
   root.style.setProperty('--devdesk-orb-1', config.orbColors.primary);
   root.style.setProperty('--devdesk-orb-2', config.orbColors.secondary);
+  root.style.setProperty('--devdesk-motion-duration', motionDuration);
+  root.style.setProperty('--devdesk-motion-ease', motionEase);
 }
 
 export const DEFAULT_THEME: DesktopThemeConfig = PRESET_THEMES[0] as DesktopThemeConfig;

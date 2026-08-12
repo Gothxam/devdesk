@@ -1,6 +1,6 @@
 /**
- * Stage 6 — Desktop Visual Layer & Single Source of Truth Token System
- * All colors, radii, blurs, fonts, borders, and shadows are 100% token-driven via CSS custom properties.
+ * Stage 7 — Premium Desktop Visual Layer & Refined Design System
+ * 100% Token-Driven, Specular Translucent Glass, Motion Micro-Interactions
  */
 
 :root {
@@ -21,6 +21,25 @@
   --devdesk-border: 1px solid rgba(255, 255, 255, 0.1);
   --devdesk-orb-1: rgba(99, 102, 241, 0.16);
   --devdesk-orb-2: rgba(16, 185, 129, 0.11);
+
+  /* Motion Tokens */
+  --devdesk-motion-duration: 0.22s;
+  --devdesk-motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Global Reset & Smooth Font Rendering */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: var(--devdesk-font);
+  color: var(--devdesk-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Native OS Desktop Wallpaper Canvas */
@@ -32,6 +51,7 @@
   font-family: var(--devdesk-font);
   pointer-events: none;
   user-select: none;
+  transition: background 0.4s ease;
 }
 
 /* Wallpaper Mesh & Noise Vignette */
@@ -67,6 +87,7 @@
   background: radial-gradient(circle, var(--devdesk-orb-1) 0%, rgba(0, 0, 0, 0) 70%);
   filter: blur(90px);
   animation: orb-float 16s ease-in-out infinite;
+  transition: background 0.4s ease;
 }
 
 .devdesk-orb-emerald {
@@ -79,6 +100,7 @@
   background: radial-gradient(circle, var(--devdesk-orb-2) 0%, rgba(0, 0, 0, 0) 70%);
   filter: blur(80px);
   animation: orb-float 20s ease-in-out infinite reverse;
+  transition: background 0.4s ease;
 }
 
 .devdesk-orb-violet {
@@ -91,9 +113,10 @@
   background: radial-gradient(circle, var(--devdesk-accent-bg) 0%, rgba(0, 0, 0, 0) 70%);
   filter: blur(75px);
   animation: orb-float 14s ease-in-out infinite 2s;
+  transition: background 0.4s ease;
 }
 
-/* Floating Desktop Surfaces (100% Token Driven) */
+/* Floating Desktop Surfaces (100% Token Driven with Specular Edge Glow) */
 .devdesk-surface-card {
   position: absolute;
   border-radius: var(--devdesk-radius);
@@ -102,27 +125,28 @@
   -webkit-backdrop-filter: blur(var(--devdesk-blur)) saturate(200%);
   background: var(--devdesk-bg);
   border: var(--devdesk-border);
-  box-shadow: var(--devdesk-shadow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--devdesk-shadow);
   font-family: var(--devdesk-font);
   color: var(--devdesk-text);
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
-              border-color 0.22s ease,
-              box-shadow 0.22s ease,
-              background 0.22s ease;
+  transition: transform var(--devdesk-motion-duration) var(--devdesk-motion-ease),
+              border-color var(--devdesk-motion-duration) ease,
+              box-shadow var(--devdesk-motion-duration) ease,
+              background var(--devdesk-motion-duration) ease;
 }
 
 .devdesk-surface-card:hover {
+  transform: translateY(-2px);
   border-color: var(--devdesk-accent);
-  box-shadow: 0 0 32px var(--devdesk-accent-border), var(--devdesk-shadow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 32px var(--devdesk-accent-border), var(--devdesk-shadow);
 }
 
 .devdesk-surface-card.editing {
   border: 2px solid var(--devdesk-accent);
-  box-shadow: 0 0 32px var(--devdesk-accent-border), var(--devdesk-shadow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 32px var(--devdesk-accent-border), var(--devdesk-shadow);
 }
 
 /* Tactile Resize Handle (Bottom Right) */
@@ -166,14 +190,14 @@
   backdrop-filter: blur(var(--devdesk-blur)) saturate(190%);
   -webkit-backdrop-filter: blur(var(--devdesk-blur)) saturate(190%);
   border: var(--devdesk-border);
-  box-shadow: var(--devdesk-shadow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), var(--devdesk-shadow);
   color: var(--devdesk-text);
   font-family: var(--devdesk-font);
   display: flex;
   flex-direction: column;
   gap: 2px;
   user-select: none;
-  animation: menu-appear 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: menu-appear var(--devdesk-motion-duration) var(--devdesk-motion-ease);
 }
 
 @keyframes menu-appear {

@@ -13,6 +13,7 @@ export interface EditOverlayProps {
   readonly workArea: { readonly width: number; readonly height: number };
   readonly onToggleEditMode: () => void;
   readonly onOpenThemePicker?: (() => void) | undefined;
+  readonly onOpenGallery?: (() => void) | undefined;
 }
 
 export function EditOverlay(props: EditOverlayProps): React.JSX.Element {
@@ -52,6 +53,33 @@ export function EditOverlay(props: EditOverlayProps): React.JSX.Element {
           gap: 10,
         }}
       >
+        {props.onOpenGallery && (
+          <button
+            type="button"
+            onClick={props.onOpenGallery}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '7px 14px',
+              borderRadius: 20,
+              border: '1px solid rgba(255, 255, 255, 0.14)',
+              background: 'var(--devdesk-bg)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              color: 'var(--devdesk-text)',
+              fontFamily: 'var(--devdesk-font)',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: 'var(--devdesk-shadow)',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <span>📦 Add Widget</span>
+          </button>
+        )}
+
         {props.onOpenThemePicker && (
           <button
             type="button"
@@ -63,20 +91,22 @@ export function EditOverlay(props: EditOverlayProps): React.JSX.Element {
               padding: '7px 14px',
               borderRadius: 20,
               border: '1px solid rgba(255, 255, 255, 0.14)',
-              background: 'rgba(18, 20, 28, 0.78)',
+              background: 'var(--devdesk-bg)',
               backdropFilter: 'blur(16px)',
               WebkitBackdropFilter: 'blur(16px)',
-              color: '#ffffff',
+              color: 'var(--devdesk-text)',
+              fontFamily: 'var(--devdesk-font)',
               fontSize: 12,
               fontWeight: 600,
               cursor: 'pointer',
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+              boxShadow: 'var(--devdesk-shadow)',
               transition: 'all 0.2s ease',
             }}
           >
             <span>🎨 Themes</span>
           </button>
         )}
+
 
         <button
           type="button"

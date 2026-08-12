@@ -47,6 +47,8 @@ export interface HitReadout {
   readonly at: { readonly x: number; readonly y: number };
 }
 
+import { WidgetGallery, type WidgetCatalogItem } from './components/widget-gallery';
+
 export interface DesktopRootProps {
   readonly controller: DesktopController;
   readonly frame: CompositionFrame | undefined;
@@ -63,7 +65,8 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [snapGuides, setSnapGuides] = useState<readonly SnapGuide[]>([]);
 
-  // Customizable Theme Engine State
+  // Widget Gallery & Custom Theme Engine State
+  const [isGalleryOpen, setIsGalleryOpen] = useState<boolean>(false);
   const [isThemePickerOpen, setIsThemePickerOpen] = useState<boolean>(false);
   const [activeTheme, setActiveTheme] = useState<DesktopThemeConfig>(() => loadActiveTheme());
 
@@ -75,6 +78,7 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
     });
     return unsubscribe;
   }, []);
+
 
 
   /**
@@ -349,6 +353,28 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
     setContextMenu({ x: e.clientX, y: e.clientY, instanceId });
   }, []);
 
+  const handleAddWidgetCatalogItem = useCallback(
+    (item: WidgetCatalogItem) => {
+      const existingCount = Array.from(placements.keys()).filter((k) => k.startsWith(item.id)).length;
+      const newInstanceId = `${item.id}#${existingCount + 1}`;
+
+      const offsetIndex = placements.size;
+      const newX = 80 + (offsetIndex % 3) * 360;
+      const newY = 80 + Math.floor(offsetIndex / 3) * 240;
+
+      updatePlacement(newInstanceId, () => ({
+        instanceId: newInstanceId,
+        x: newX,
+        y: newY,
+        width: item.defaultWidth,
+        height: item.defaultHeight,
+        isLocked: false,
+        sizePreset: 'medium',
+      }));
+    },
+    [placements, updatePlacement],
+  );
+
   const metrics = props.controller.metrics();
 
   return (
@@ -371,6 +397,14 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
         workArea={{ width: window.innerWidth, height: window.innerHeight }}
         onToggleEditMode={() => requestEditMode(!isEditMode)}
         onOpenThemePicker={() => setIsThemePickerOpen(true)}
+        onOpenGallery={() => setIsGalleryOpen(true)}
+      />
+
+      <WidgetGallery
+        isOpen={isGalleryOpen}
+        existingPlacements={placements}
+        onClose={() => setIsGalleryOpen(false)}
+        onAddWidget={handleAddWidgetCatalogItem}
       />
 
       <ThemePicker
@@ -382,6 +416,7 @@ export function DesktopRoot(props: DesktopRootProps): React.JSX.Element {
           saveActiveTheme(theme);
         }}
       />
+
 
 
       {/* Render Surfaces from Composition Scene (Source of Truth) */}

@@ -1,6 +1,13 @@
 /**
- * Stage 6 — Desktop Surface Card & Token-Driven Widgets Component
- * All visual aesthetics (colors, blur, borders, radius, shadow, font) are derived 100% from CSS variable tokens emitted by the active theme.
+ * Stage 7A — Desktop Surface Card & 100% Dynamic Real-Data Widgets
+ *
+ * Requirements Met:
+ * 1. Clock: Real-time ticker with seconds, system date, no hardcoded strings.
+ * 2. Calendar: Dynamic first-weekday calculation, exact days in month (28/29/30/31),
+ *    leap year detection, current day highlight, dynamic month/year header.
+ * 3. Session Uptime: Continuously updating live uptime since launch.
+ * 4. System Telemetry: Strictly uses runtime metrics contract, CPU/Memory rendered as 'Unavailable'.
+ * 5. Activity Stream: Actual runtime event/compositor counters.
  */
 
 import { parseWidgetInstanceId } from '@devdesk/contracts';
@@ -9,11 +16,53 @@ import {
   layerDepth,
   type CompositionSurface,
 } from '@devdesk/widget-engine';
-import type { CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 
 import type { ClockView } from '../../widgets/clock/clock';
 import type { DesktopMetrics } from '../controller';
 import type { WidgetPlacementRecord } from '../layout-store';
+
+/** Calculate calendar grid data dynamically for any date */
+export function getCalendarMonthData(now: Date = new Date()) {
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const today = now.getDate();
+  const monthName = now.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+  // First weekday of month (0 = Sun, 1 = Mon, ..., 6 = Sat)
+  const firstWeekday = new Date(year, month, 1).getDay();
+
+  // Total days in month (passing day 0 of month + 1 returns last day of current month)
+  const totalDays = new Date(year, month + 1, 0).getDate();
+
+  const grid: (number | null)[] = [];
+  for (let i = 0; i < firstWeekday; i++) {
+    grid.push(null);
+  }
+  for (let d = 1; d <= totalDays; d++) {
+    grid.push(d);
+  }
+
+  return {
+    year,
+    month,
+    monthName,
+    today,
+    firstWeekday,
+    totalDays,
+    grid,
+  };
+}
+
+/** Format milliseconds into HH:MM:SS uptime string */
+export function formatSessionUptime(elapsedMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
 
 export interface SurfaceCardProps {
   readonly surface: CompositionSurface;
@@ -70,22 +119,27 @@ export function surfaceStyle(
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+    transition: 'all var(--devdesk-motion-duration, 0.2s) var(--devdesk-motion-ease, cubic-bezier(0.16, 1, 0.3, 1))',
     userSelect: 'none',
   };
 }
 
-/** Render Calendar Month Grid */
-function CalendarWidgetGrid(): React.JSX.Element {
-  const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-  const today = new Date().getDate();
-  const monthName = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+/** Render Dynamic Calendar Month Grid */
+export function CalendarWidgetGrid(): React.JSX.Element {
+  const [currentDate, setCurrentDate] = useState(() => new Date());
 
-  const gridCells = Array.from({ length: 28 }, (_, i) => i + 1);
+  useEffect(() => {
+    // Refresh date at midnight
+    const timer = setInterval(() => setCurrentDate(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const { monthName, today, grid } = getCalendarMonthData(currentDate);
+  const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
   return (
     <div style={{ width: '100%', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {/* Month Header */}
+      {/* Month & Year Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--devdesk-text)', fontWeight: 700, fontSize: 13 }}>
         <span style={{ letterSpacing: '-0.01em' }}>{monthName}</span>
         <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 12, background: 'var(--devdesk-accent-bg)', color: 'var(--devdesk-accent)', fontWeight: 600, border: '1px solid var(--devdesk-accent-border)' }}>
@@ -102,7 +156,10 @@ function CalendarWidgetGrid(): React.JSX.Element {
 
       {/* Days Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 11, fontWeight: 500 }}>
-        {gridCells.map((day) => {
+        {grid.map((day, idx) => {
+          if (day === null) {
+            return <div key={`empty-cell-${idx}`} />;
+          }
           const isToday = day === today;
           return (
             <div
@@ -125,8 +182,20 @@ function CalendarWidgetGrid(): React.JSX.Element {
   );
 }
 
-/** Render Session Uptime Timer Widget */
-function SessionWidgetView(): React.JSX.Element {
+/** Render Live Session Uptime Timer Widget */
+export function SessionWidgetView(): React.JSX.Element {
+  const [sessionStart] = useState(() => Date.now());
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setElapsedMs(Date.now() - sessionStart);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [sessionStart]);
+
+  const uptimeStr = formatSessionUptime(elapsedMs);
+
   return (
     <div style={{ width: '100%', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -140,12 +209,82 @@ function SessionWidgetView(): React.JSX.Element {
       </div>
 
       <div style={{ fontSize: 32, fontWeight: 700, fontFamily: 'var(--devdesk-font)', color: 'var(--devdesk-accent)', letterSpacing: '-0.03em', textShadow: '0 4px 16px var(--devdesk-accent-border)' }}>
-        00:45:12
+        {uptimeStr}
       </div>
 
       <div style={{ fontSize: 11, opacity: 0.7, display: 'flex', justifyContent: 'space-between', fontWeight: 500 }}>
-        <span>Start: 15:30:00</span>
+        <span>Uptime: {Math.floor(elapsedMs / 1000)}s</span>
         <span>Cadence: 1.0s</span>
+      </div>
+    </div>
+  );
+}
+
+/** Render System Telemetry Widget (Strictly uses runtime metrics, CPU/Mem explicitly Unavailable) */
+export function SystemWidgetView(props: { readonly metrics: DesktopMetrics | undefined }): React.JSX.Element {
+  const wakeups = props.metrics?.wakeups ?? 0;
+  const updates = props.metrics?.updates ?? 0;
+
+  return (
+    <div style={{ width: '100%', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--devdesk-text)' }}>💻 System Metrics</span>
+        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 8, background: 'var(--devdesk-accent-bg)', color: 'var(--devdesk-accent)', fontWeight: 600 }}>
+          {wakeups} wakeups
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, opacity: 0.7, marginBottom: 2 }}>
+            <span>CPU Usage</span>
+            <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Unavailable</span>
+          </div>
+          <div style={{ height: 4, borderRadius: 2, background: 'rgba(255, 255, 255, 0.08)', overflow: 'hidden' }}>
+            <div style={{ width: '0%', height: '100%', background: 'var(--devdesk-accent)' }} />
+          </div>
+        </div>
+
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, opacity: 0.7, marginBottom: 2 }}>
+            <span>Memory Usage</span>
+            <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Unavailable</span>
+          </div>
+          <div style={{ height: 4, borderRadius: 2, background: 'rgba(255, 255, 255, 0.08)', overflow: 'hidden' }}>
+            <div style={{ width: '0%', height: '100%', background: 'var(--devdesk-accent)' }} />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, opacity: 0.8, marginTop: 2 }}>
+          <span>Widget Updates:</span>
+          <span style={{ fontWeight: 600, color: 'var(--devdesk-accent)' }}>{updates}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Render Activity Stream Widget */
+export function ActivityWidgetView(props: { readonly sequence: number; readonly layer: string; readonly metrics: DesktopMetrics | undefined }): React.JSX.Element {
+  const frames = props.metrics?.frames ?? 0;
+  return (
+    <div style={{ width: '100%', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--devdesk-text)' }}>📊 Activity Stream</span>
+        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 8, background: 'var(--devdesk-accent-bg)', color: 'var(--devdesk-accent)', fontWeight: 600 }}>
+          Seq #{props.sequence}
+        </span>
+      </div>
+
+      <div style={{ fontSize: 11, opacity: 0.75, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Compositor Frames:</span>
+          <span style={{ fontWeight: 600, color: 'var(--devdesk-accent)' }}>{frames}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Layer:</span>
+          <span style={{ fontWeight: 600, color: '#34d399' }}>{props.layer}</span>
+        </div>
       </div>
     </div>
   );
@@ -159,6 +298,22 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
   const isClock = instanceKey.includes('clock');
   const isCalendar = instanceKey.includes('calendar');
   const isSession = instanceKey.includes('session');
+  const isSystem = instanceKey.includes('system');
+  const isActivity = instanceKey.includes('activity');
+
+  // Continuous Clock Ticker state
+  const [clockTime, setClockTime] = useState(() => new Date());
+
+  useEffect(() => {
+    if (isClock) {
+      const timer = setInterval(() => setClockTime(new Date()), 1000);
+      return () => clearInterval(timer);
+    }
+    return undefined;
+  }, [isClock]);
+
+  const displayTimeStr = view?.time || clockTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const displayDateStr = view?.date || clockTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 
   return (
     <div
@@ -201,8 +356,8 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
       )}
 
       {/* Widget Visual Content */}
-      {view && isClock ? (
-        /* Redesigned Floating Clock Widget */
+      {isClock ? (
+        /* Dynamic Floating Clock Widget */
         <div
           style={{
             flex: 1,
@@ -226,7 +381,7 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
               textShadow: '0 4px 32px var(--devdesk-accent-border)',
             }}
           >
-            {view.time}
+            {displayTimeStr}
           </div>
 
           <div
@@ -245,17 +400,23 @@ export function SurfaceCard(props: SurfaceCardProps): React.JSX.Element {
             }}
           >
             <span className="devdesk-live-dot" />
-            <span>{view.date}</span>
+            <span>{displayDateStr}</span>
           </div>
         </div>
       ) : isCalendar ? (
-        /* Redesigned Calendar Widget */
+        /* Redesigned Dynamic Calendar Widget */
         <CalendarWidgetGrid />
       ) : isSession ? (
         /* Redesigned Session Widget */
         <SessionWidgetView />
+      ) : isSystem ? (
+        /* Redesigned System Widget */
+        <SystemWidgetView metrics={metrics} />
+      ) : isActivity ? (
+        /* Redesigned Activity Widget */
+        <ActivityWidgetView sequence={sequence} layer={surface.layer} metrics={metrics} />
       ) : (
-        /* System / Activity / Generic Surface Tile */
+        /* Generic Surface Tile Fallback */
         <div
           style={{
             flex: 1,
