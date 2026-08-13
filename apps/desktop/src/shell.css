@@ -46,7 +46,7 @@ body {
 .devdesk-wallpaper {
   position: fixed;
   inset: 0;
-  background: radial-gradient(ellipse at 50% 25%, #15182a 0%, #0c0d16 55%, #030407 100%);
+  background: var(--devdesk-wallpaper-bg, radial-gradient(ellipse at 50% 25%, #15182a 0%, #0c0d16 55%, #030407 100%));
   overflow: hidden;
   font-family: var(--devdesk-font);
   pointer-events: none;
@@ -58,9 +58,9 @@ body {
 .devdesk-wallpaper-grid {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 32px 32px;
-  opacity: 0.5;
+  opacity: 0.6;
 }
 
 .devdesk-wallpaper-vignette {
@@ -137,6 +137,33 @@ body {
               box-shadow var(--devdesk-motion-duration) ease,
               background var(--devdesk-motion-duration) ease;
 }
+
+/* Material-Specific Visual Overrides for Theme Differentiation */
+.theme-material-neon .devdesk-surface-card {
+  border: 2px solid var(--devdesk-accent) !important;
+  box-shadow: 0 0 24px var(--devdesk-accent-border), 0 0 48px var(--devdesk-accent-bg) !important;
+  font-family: var(--devdesk-font-mono) !important;
+}
+
+.theme-material-paper .devdesk-surface-card {
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+.theme-material-acrylic .devdesk-surface-card {
+  backdrop-filter: blur(50px) saturate(220%) !important;
+  -webkit-backdrop-filter: blur(50px) saturate(220%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+}
+
+.theme-material-matte .devdesk-surface-card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(18, 20, 26, 0.98) !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5) !important;
+}
+
 
 .devdesk-surface-card:hover {
   transform: translateY(-2px);
